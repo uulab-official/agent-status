@@ -14,23 +14,37 @@ function toneColor(tone) {
   }
 }
 
-// Builds a tiny inline SVG line chart from oldest-to-newest `used` values.
-// Values come from `get_usage_history`, which is called separately after
-// the main render (see loadSparklines) — history isn't part of the
-// view model itself, so this placeholder is empty until that call resolves.
-function renderSparkline(values) {
-  if (values.length < 2) return "";
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const points = values
-    .map((v, i) => {
-      const x = (i / (values.length - 1)) * 100;
-      const y = 20 - ((v - min) / range) * 18 - 1;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  return `<svg class="sparkline-svg" viewBox="0 0 100 20" preserveAspectRatio="none"><polyline points="${points}" /></svg>`;
+// Abbreviates large counts the same way the Rust side does for value_text
+// (e.g. Claude's token totals), so the peak caption reads "41.2M" not
+// "41213024".
+function formatCount(value) {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return `${Math.round(value)}`;
+}
+
+// For windows with no known cap (e.g. Claude's token counts), there's no
+// real percentage to show — but a bare line chart read as "just a graph,"
+// not the progress-bar-at-a-glance the rest of the popover uses. Instead,
+// show a real progress bar against the highest reading seen recently: how
+// close is *right now* to the peak. Still never a percentage of anything
+// invented — it's an honest ratio of two numbers that were both actually
+// observed. Values come from `get_usage_history`, fetched separately after
+// the main render (see loadRelativeUsageBars) since history isn't part of
+// the view model itself.
+function renderRelativeUsageBar(valuesNewestFirst) {
+  if (valuesNewestFirst.length === 0) return "";
+  const current = valuesNewestFirst[0];
+  const peak = Math.max(...valuesNewestFirst);
+  const percent = peak > 0 ? Math.min(100, Math.round((current / peak) * 100)) : 0;
+  const color = percent >= 90 ? "#ef4444" : percent >= 70 ? "#f59e0b" : "#22c55e";
+  return `
+    <div class="bar-track">
+      <div class="bar-fill" style="width:${percent}%;background:${color}"></div>
+    </div>
+    <div class="limit-meta">${percent}% of recent peak (${formatCount(peak)})</div>`;
 }
 
 function renderProvider(provider) {
@@ -47,9 +61,8 @@ function renderProvider(provider) {
               ? `<div class="bar-track">
                   <div class="bar-fill" style="width:${limit.percent}%;background:${toneColor(limit.tone)}"></div>
                 </div>`
-              : ""
+              : `<div class="relative-usage-bar" data-provider="${provider.id}" data-window="${limit.id}"></div>`
           }
-          <div class="sparkline" data-provider="${provider.id}" data-window="${limit.id}"></div>
           ${limit.resetText ? `<div class="limit-meta">${limit.resetText}</div>` : ""}
         </div>`,
     )
@@ -100,11 +113,12 @@ function renderSettings(settings) {
     </label>`;
 }
 
-// Recent trend per limit window, fetched separately from the main view
-// model (history is a growing table, not something recomputed on every
-// tick). Fire-and-forget per provider — a slow/failed history read for one
-// provider shouldn't block the others' sparklines from appearing.
-function loadSparklines(viewModel) {
+// Recent-peak comparison per no-known-limit window, fetched separately from
+// the main view model (history is a growing table, not something
+// recomputed on every tick). Fire-and-forget per provider — a slow/failed
+// history read for one provider shouldn't block the others' bars from
+// appearing.
+function loadRelativeUsageBars(viewModel) {
   for (const provider of viewModel.providers) {
     if (provider.limits.length === 0) continue;
     invoke("get_usage_history", { providerId: provider.id })
@@ -115,8 +129,8 @@ function loadSparklines(viewModel) {
           byWindow.get(row.windowId).push(row.used);
         }
         for (const [windowId, usedNewestFirst] of byWindow) {
-          const el = document.querySelector(`.sparkline[data-provider="${provider.id}"][data-window="${windowId}"]`);
-          if (el) el.innerHTML = renderSparkline(usedNewestFirst.slice().reverse());
+          const el = document.querySelector(`.relative-usage-bar[data-provider="${provider.id}"][data-window="${windowId}"]`);
+          if (el) el.innerHTML = renderRelativeUsageBar(usedNewestFirst);
         }
       })
       .catch(() => {});
@@ -126,7 +140,7 @@ function loadSparklines(viewModel) {
 function render(viewModel) {
   renderProviders(viewModel);
   renderSettings(viewModel.settings);
-  loadSparklines(viewModel);
+  loadRelativeUsageBars(viewModel);
 }
 
 function refresh() {

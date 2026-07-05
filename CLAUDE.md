@@ -36,7 +36,17 @@ cargo run -p agent-status     # build and launch the actual app
 
 No Node/npm/pnpm anywhere in this codebase — the popover frontend
 (`ui/index.html`, `ui/popover.js`, `ui/popover.css`) is static, no build
-step, no bundler.
+step, no bundler. **That doesn't mean editing it is free of a rebuild,
+though**: `tauri.conf.json`'s `frontendDist: "../ui"` gets embedded into
+the compiled binary by `tauri-build`'s build script, so a plain `cargo run`
+against an already-built binary keeps serving whatever `ui/` snapshot was
+captured at the *last* `cargo build` — editing `ui/popover.js` and just
+restarting the existing binary silently serves stale JS with no error. A
+real bug hit while adding the popover's usage sparklines: several rounds of
+"why isn't my JS change showing up" turned out to be exactly this, not a
+WebView cache issue (which was also tried and didn't help, since the
+binary itself hadn't changed). Always `cargo build -p agent-status` after
+touching anything under `ui/`, same as after touching `src-tauri/src/`.
 
 ## Where things live (don't guess — check this first)
 
