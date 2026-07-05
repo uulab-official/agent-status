@@ -34,6 +34,18 @@ fn percent_used(window: &LimitWindow) -> f64 {
 /// Stateful so it can dedupe: a given (provider, reason) pair fires once per
 /// reset cycle, not on every poll. Keep one instance alive for the lifetime
 /// of the app, not one per refresh.
+///
+/// Re-arming is self-contained: no provider actually reports `resets_at`
+/// today (Claude and OpenRouter both leave it `None`), so an earlier design
+/// that required the caller to call a `clear_for_window()` when a window
+/// reset never had anything to trigger it — `fired_reasons` only ever grew,
+/// so once a threshold fired it stayed silent for the rest of the process's
+/// life, not just until the next reset as the original doc comment here
+/// claimed. Instead, `evaluate_window` itself re-arms a reason once the
+/// underlying metric recovers back past it (e.g. a rolling-window sum drops
+/// again, or a reset actually happens and a new `resets_at` moves further
+/// out) — this needs no cooperation from `scheduler.rs` and works for the
+/// rolling-sum providers this app actually has today.
 #[derive(Default)]
 pub struct NotificationEngine {
     thresholds: NotificationThresholds,
@@ -43,12 +55,6 @@ pub struct NotificationEngine {
 impl NotificationEngine {
     pub fn new(thresholds: NotificationThresholds) -> Self {
         Self { thresholds, fired_reasons: HashSet::new() }
-    }
-
-    /// Call once per limit window reset so its thresholds can fire again next cycle.
-    pub fn clear_for_window(&mut self, provider_id: &str, window_id: &str) {
-        let prefix = format!("{provider_id}:{window_id}:");
-        self.fired_reasons.retain(|reason| !reason.starts_with(&prefix));
     }
 
     pub fn evaluate(&mut self, status: &ProviderStatus) -> Vec<AgentNotification> {
@@ -95,7 +101,12 @@ impl NotificationEngine {
 
         for &threshold in &self.thresholds.low_remaining_percents {
             let reason = format!("{}:{}:low_{}", status.provider_id, window.id, threshold);
-            if remaining_pct <= threshold as f64 && !self.fired_reasons.contains(&reason) {
+            if remaining_pct > threshold as f64 {
+                // Usage dropped safely back past this threshold (a rolling
+                // window's sum fell, or the window reset) — re-arm so the
+                // next crossing fires again instead of staying silent.
+                self.fired_reasons.remove(&reason);
+            } else if !self.fired_reasons.contains(&reason) {
                 self.fired_reasons.insert(reason.clone());
                 let severity = if threshold <= 5 { NotificationSeverity::Critical } else { NotificationSeverity::Warning };
                 notifications.push(make_notification(
@@ -112,7 +123,12 @@ impl NotificationEngine {
             if let Ok(resets_at) = chrono::DateTime::parse_from_rfc3339(resets_at) {
                 let remaining_ms = (resets_at.with_timezone(&chrono::Utc) - now).num_milliseconds();
                 let reason = format!("{}:{}:reset_soon", status.provider_id, window.id);
-                if remaining_ms > 0 && remaining_ms <= self.thresholds.reset_soon_within_ms && !self.fired_reasons.contains(&reason) {
+                if remaining_ms > self.thresholds.reset_soon_within_ms {
+                    // The next reset is comfortably far away again (either
+                    // this one just happened and pushed resets_at forward,
+                    // or the countdown simply isn't close yet) — re-arm.
+                    self.fired_reasons.remove(&reason);
+                } else if remaining_ms > 0 && !self.fired_reasons.contains(&reason) {
                     self.fired_reasons.insert(reason.clone());
                     notifications.push(make_notification(
                         status,

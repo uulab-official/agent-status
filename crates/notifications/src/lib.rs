@@ -47,16 +47,44 @@ mod tests {
     }
 
     #[test]
-    fn re_fires_after_clear_for_window() {
+    fn re_fires_after_usage_recovers_back_past_the_threshold() {
+        // No provider actually reports resets_at today (Claude and
+        // OpenRouter both leave it None), so a design that only re-armed via
+        // an explicit "the window reset" call from the scheduler would never
+        // fire twice in the real app. A rolling-window sum going back down
+        // past the threshold — which Claude's real 5-hour/weekly sums do —
+        // must be enough on its own.
         let mut engine = NotificationEngine::new(NotificationThresholds {
             low_remaining_percents: vec![10],
             reset_soon_within_ms: 0,
             monthly_budget_usd: None,
         });
         engine.evaluate(&status_with_usage(91.0, None));
-        engine.clear_for_window("claude", "session");
+        engine.evaluate(&status_with_usage(50.0, None)); // usage drops back below the threshold
         let again = engine.evaluate(&status_with_usage(91.0, None));
         assert_eq!(again.len(), 1);
+    }
+
+    #[test]
+    fn reset_soon_re_fires_after_a_reset_pushes_the_next_one_back_out() {
+        let mut engine = NotificationEngine::new(NotificationThresholds {
+            low_remaining_percents: vec![],
+            reset_soon_within_ms: 60_000,
+            monthly_budget_usd: None,
+        });
+        let soon = (Utc::now() + Duration::seconds(30)).to_rfc3339();
+        let first = engine.evaluate(&status_with_usage(10.0, Some(soon)));
+        assert_eq!(first.len(), 1);
+
+        // The window actually resets; the provider now reports a resets_at
+        // far in the future again.
+        let next_cycle = (Utc::now() + Duration::hours(5)).to_rfc3339();
+        engine.evaluate(&status_with_usage(0.0, Some(next_cycle)));
+
+        // ...time passes and that next reset is close again.
+        let soon_again = (Utc::now() + Duration::seconds(20)).to_rfc3339();
+        let second = engine.evaluate(&status_with_usage(10.0, Some(soon_again)));
+        assert_eq!(second.len(), 1);
     }
 
     #[test]
