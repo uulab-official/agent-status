@@ -1,0 +1,49 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/core",
+  "crates/plugins-common",
+  "crates/notifications",
+  "crates/database",
+  "crates/tray-label",
+  "crates/providers/ollama",
+  "crates/providers/custom",
+  "crates/providers/openrouter",
+  "crates/providers/claude",
+  "crates/providers/openai",
+  "crates/providers/gemini",
+  "crates/providers/cursor",
+  "crates/providers/copilot",
+  "crates/providers/codex",
+  "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/agent-status/agent-status"
+
+[workspace.dependencies]
+agent-core = { path = "crates/core" }
+agent-plugins = { path = "crates/plugins-common" }
+agent-notifications = { path = "crates/notifications" }
+agent-database = { path = "crates/database" }
+agent-tray = { path = "crates/tray-label" }
+provider-ollama = { path = "crates/providers/ollama" }
+provider-custom = { path = "crates/providers/custom" }
+provider-openrouter = { path = "crates/providers/openrouter" }
+provider-claude = { path = "crates/providers/claude" }
+provider-openai = { path = "crates/providers/openai" }
+provider-gemini = { path = "crates/providers/gemini" }
+provider-cursor = { path = "crates/providers/cursor" }
+provider-copilot = { path = "crates/providers/copilot" }
+provider-codex = { path = "crates/providers/codex" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "process"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+dirs = "5"

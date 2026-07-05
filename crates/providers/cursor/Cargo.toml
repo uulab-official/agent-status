@@ -1,0 +1,15 @@
+[package]
+name = "provider-cursor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+agent-core.workspace = true
+agent-plugins.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]

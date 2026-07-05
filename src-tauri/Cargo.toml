@@ -1,0 +1,36 @@
+[package]
+name = "agent-status"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "agent_status_lib"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+agent-core.workspace = true
+agent-plugins.workspace = true
+agent-notifications.workspace = true
+agent-database.workspace = true
+agent-tray.workspace = true
+provider-ollama.workspace = true
+provider-custom.workspace = true
+provider-openrouter.workspace = true
+provider-claude.workspace = true
+provider-openai.workspace = true
+provider-gemini.workspace = true
+provider-cursor.workspace = true
+provider-copilot.workspace = true
+provider-codex.workspace = true
+
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+chrono.workspace = true

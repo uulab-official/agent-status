@@ -1,0 +1,9 @@
+[package]
+name = "agent-notifications"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+agent-core.workspace = true
+chrono.workspace = true
