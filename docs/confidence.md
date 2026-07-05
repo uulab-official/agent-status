@@ -18,7 +18,7 @@ pub enum Confidence {
 
 | Value | Variant | Source | Example |
 |---|---|---|---|
-| ★★★★★ (5) | `OfficialApi` | A documented, stable metering endpoint | OpenRouter `GET /api/v1/auth/key` (implemented), Ollama's own local REST API (implemented), OpenAI `/v1/usage`, GitHub Copilot's usage API (both still TODO) |
+| ★★★★★ (5) | `OfficialApi` | A documented, stable metering endpoint | OpenRouter `GET /api/v1/auth/key`, Ollama's own local REST API, OpenAI `GET /v1/organization/costs`, Gemini `GET /v1beta/models` (all implemented) — GitHub Copilot's usage API is still TODO (blocked: 404s for individual accounts, see ROADMAP.md) |
 | ★★★★☆ (4) | `OfficialScreen` | A first-party usage *screen's* backing response, not a documented API contract | Cursor's dashboard usage JSON — real, first-party, but could change shape without notice |
 | ★★★☆☆ (3) | `CliLog` | Parsed from a CLI tool's own local logs/state files | Claude Code's `~/.claude` session state, `gh copilot` local state |
 | ★★☆☆☆ (2) | `BrowserScrape` | Scraped from a logged-in browser session | claude.ai `/settings/usage`, chat.openai.com's usage panel — the only path when no API/CLI surface exists |

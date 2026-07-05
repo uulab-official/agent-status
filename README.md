@@ -76,10 +76,10 @@ one shared shape. Losing a provider — or a vendor changing their usage page
 | [Custom / OpenAI-compatible](crates/providers/custom) (LM Studio, AnythingLLM, Open WebUI) | ✅ Fully implemented | ★★★★★ |
 | [OpenRouter](crates/providers/openrouter) | ✅ Fully implemented | ★★★★★ API |
 | [Codex](crates/providers/codex) | ✅ Real connectivity check | ★★★☆☆ CLI (`codex login status`) — no usage API exists yet |
-| [Cursor](crates/providers/cursor) | ✅ Real connectivity check | ★★★☆☆ CLI (`cursor-agent status`); ★★★★☆ dashboard quota still TODO |
-| [Claude](crates/providers/claude) | 🚧 Detection only | ★★★☆☆ CLI state / ★★☆☆☆ browser |
-| [OpenAI / ChatGPT](crates/providers/openai) | 🚧 Detection only | ★★★★★ API / ★★☆☆☆ browser |
-| [Gemini](crates/providers/gemini) | 🚧 Detection only | ★★★★★ API / ★★★☆☆ CLI |
+| [Cursor](crates/providers/cursor) | ✅ Real connectivity check | ★★★☆☆ CLI (`cursor-agent status`); ★★★★☆ dashboard quota deliberately not pursued (needs a session cookie — see its README) |
+| [Claude](crates/providers/claude) | ✅ Fully implemented | ★★★☆☆ CLI log (`~/.claude` session transcripts) — token counts, no plan-cap percentage |
+| [OpenAI / ChatGPT](crates/providers/openai) | ✅ Fully implemented (platform API cost) | ★★★★★ Admin Costs API — ChatGPT plan message caps (★★☆☆☆ browser) still TODO |
+| [Gemini](crates/providers/gemini) | ✅ Real connectivity check | ★★★★★ API key validity + model list — no usage/quota endpoint exists to call |
 | [GitHub Copilot](crates/providers/copilot) | 🚧 Blocked — see its README | ★★★★★ API (v1.5) |
 
 Confidence tiers are a first-class part of the data model, not a footnote —

@@ -12,26 +12,25 @@ monthly reset once `fetch_status()` grows a real quota source (see below).
 
 | Confidence | Source | Notes |
 |---|---|---|
-| ★★★★☆ Official screen | cursor.com dashboard usage response | **Not yet implemented.** Cursor's billing dashboard returns usage as JSON; treated as "official screen" rather than a public API since it's not a documented/stable contract. |
+| ★★★★☆ Official screen | cursor.com dashboard usage response | **Investigated and deliberately not implemented.** Getting this requires a session cookie, and the only way to obtain one is reading it out of `~/.cursor`'s stored session data directly — the same "open another tool's credential store" pattern this project rejected for Claude's Keychain-stored OAuth token (see [SECURITY.md](../../../SECURITY.md) and [ROADMAP.md](../../../ROADMAP.md)'s Claude entry). Would revisit if Cursor ships a sanctioned CLI/API path instead. |
 | ★★★☆☆ CLI log | `cursor-agent status` (stdout/stderr contains "logged in") | **Implemented.** The CLI's own sanctioned way of answering "am I logged in" — this plugin never reads `~/.cursor`'s stored session data directly. Investigated `cursor-agent --help` directly: no `usage`/`limits` subcommand exists, only `status`/`whoami`. |
-| ★★☆☆☆ Browser | In-editor usage indicator scrape | Fallback if the dashboard call requires interactive auth we don't have. |
+| ★★☆☆☆ Browser | In-editor usage indicator scrape | Not pursued — same credential-store problem as the dashboard row above (the in-editor usage indicator is only visible to an already-authenticated Cursor session). |
 
 ## What it reports today
 
 - `state`: `Online` when `cursor-agent status` reports a logged-in session,
   `Unknown` otherwise
-- No `limits` yet — real Premium/Slow quota numbers need the dashboard
-  endpoint above, which needs a session cookie this plugin doesn't have a
-  safe way to obtain yet
+- No `limits` — real Premium/Slow quota numbers would need the dashboard
+  endpoint above, which this plugin deliberately doesn't pursue (see table)
 
-## Limit windows reported (once the dashboard call is implemented)
+## Limit windows reported
 
-- `premium_requests` — monthly Premium request allotment
-- `requests` — Slow-pool usage (unlimited but queued)
+None. Would be `premium_requests` (monthly Premium request allotment) and
+`requests` (Slow-pool usage) if a sanctioned quota source is ever added.
 
 ## Status
 
 Connectivity check is real and implemented (upgraded from a `TODO`-only
 stub — see `crates/providers/codex` for the same pattern applied to another
-CLI). The actual quota numbers are still a TODO pending the dashboard
-integration.
+CLI). Real quota numbers are blocked on Cursor shipping a sanctioned way to
+read them (CLI subcommand or public API) — not on effort spent here.

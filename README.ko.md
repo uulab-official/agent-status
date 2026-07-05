@@ -70,10 +70,10 @@ OpenRouter                이번 달 $12.42
 | [Custom / OpenAI 호환](crates/providers/custom) (LM Studio, AnythingLLM, Open WebUI) | ✅ 완전 구현 | ★★★★★ |
 | [OpenRouter](crates/providers/openrouter) | ✅ 완전 구현 | ★★★★★ API |
 | [Codex](crates/providers/codex) | ✅ 실제 연결 상태 확인 | ★★★☆☆ CLI (`codex login status`) — 사용량 API 자체가 없음 |
-| [Cursor](crates/providers/cursor) | ✅ 실제 연결 상태 확인 | ★★★☆☆ CLI (`cursor-agent status`); ★★★★☆ 대시보드 한도는 아직 TODO |
-| [Claude](crates/providers/claude) | 🚧 감지만 구현 | ★★★☆☆ CLI 상태 / ★★☆☆☆ 브라우저 |
-| [OpenAI / ChatGPT](crates/providers/openai) | 🚧 감지만 구현 | ★★★★★ API / ★★☆☆☆ 브라우저 |
-| [Gemini](crates/providers/gemini) | 🚧 감지만 구현 | ★★★★★ API / ★★★☆☆ CLI |
+| [Cursor](crates/providers/cursor) | ✅ 실제 연결 상태 확인 | ★★★☆☆ CLI (`cursor-agent status`); ★★★★☆ 대시보드 한도는 세션 쿠키가 필요해 의도적으로 보류 (README 참고) |
+| [Claude](crates/providers/claude) | ✅ 완전 구현 | ★★★☆☆ CLI 로그(`~/.claude` 세션 트랜스크립트) — 토큰 수만, 플랜 한도 퍼센트는 없음 |
+| [OpenAI / ChatGPT](crates/providers/openai) | ✅ 완전 구현 (플랫폼 API 비용) | ★★★★★ Admin Costs API — ChatGPT 플랜 메시지 한도(★★☆☆☆ 브라우저)는 아직 TODO |
+| [Gemini](crates/providers/gemini) | ✅ 실제 연결 상태 확인 | ★★★★★ API 키 유효성 + 모델 목록 — 조회 가능한 사용량 엔드포인트 자체가 없음 |
 | [GitHub Copilot](crates/providers/copilot) | 🚧 API 접근 막힘 — README 참고 | ★★★★★ API (v1.5) |
 
 신뢰도(Confidence)는 부가 정보가 아니라 데이터 모델의 핵심 필드입니다.

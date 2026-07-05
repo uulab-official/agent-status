@@ -4,11 +4,18 @@ This is the practical guide. For the "why" behind the shapes involved, read
 [architecture.md](architecture.md) and [data-model.md](data-model.md) first.
 
 **Start by reading [`crates/providers/ollama/src/lib.rs`](../crates/providers/ollama/src/lib.rs).**
-It's the one provider with a fully working `fetch_status()` — every stub
-provider under `crates/providers/` has `detect()` implemented but leaves
-`fetch_status()`'s body as a documented TODO, because it needs either an API
-key the maintainers don't have or a scraping strategy that needs to be built
-and kept honest about its `Confidence` tier.
+It's the simplest complete example — no auth, no scraping, just a local
+REST call — which makes it the clearest illustration of the
+detect()/fetch_status()/tests shape every provider follows. Several other
+providers (Claude, OpenAI, OpenRouter, Gemini) also have a fully working
+`fetch_status()` now; see [ROADMAP.md](../ROADMAP.md) for the current
+per-provider status. The remaining stub providers under `crates/providers/`
+have `detect()` implemented but leave `fetch_status()`'s body as a
+documented TODO, because what's missing is either an API key the
+maintainers don't have to test against, or a real usage/quota source that
+turned out not to exist without crossing into scraping another tool's
+credential store (see SECURITY.md and the Cursor/Claude entries in
+ROADMAP.md for two documented examples of that investigation).
 
 ## 1. Scaffold the crate
 

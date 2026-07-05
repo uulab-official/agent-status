@@ -63,11 +63,17 @@ impl ProviderPlugin for CursorPlugin {
     }
 
     async fn refresh(&mut self) {
-        // TODO(v1.0): call the cursor.com dashboard usage endpoint with the
-        // session cookie found under ~/.cursor for real Premium/Slow request
-        // numbers (★★★★☆). Investigated `cursor-agent`'s CLI surface first —
-        // it has no `usage`/`limits` subcommand, only `status`/`whoami`,
-        // which reports login state but not quota. See README.md.
+        // Real Premium/Slow quota numbers would need the cursor.com
+        // dashboard's usage response, which requires a session cookie.
+        // Investigated `cursor-agent`'s CLI surface first for a sanctioned
+        // way to get one — it has no `usage`/`limits` subcommand, only
+        // `status`/`whoami`, which reports login state but not quota. The
+        // remaining option (reading the session cookie out of `~/.cursor`
+        // directly) is the same "open another tool's credential store"
+        // pattern this project rejected for Claude's Keychain-stored OAuth
+        // token — see SECURITY.md and ROADMAP.md's Claude entry. Not
+        // pursuing it here either; this stays connectivity-only (★★★☆☆)
+        // until Cursor ships a sanctioned way to read quota.
         let logged_in = is_logged_in().await;
         let mut status = ProviderStatus::unknown(self.id(), self.display_name());
         status.state = if logged_in { ConnectionState::Online } else { ConnectionState::Unknown };

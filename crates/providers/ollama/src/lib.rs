@@ -27,9 +27,11 @@ struct PsModel {
     size_vram: Option<u64>,
 }
 
-/// Reference implementation: the only provider whose `fetch_status` is fully
-/// implemented, because Ollama's local REST API needs no auth, no scraping,
-/// and no CLI-log parsing. Read this one first when writing a new plugin —
+/// Reference implementation: the simplest provider with a fully implemented
+/// `fetch_status`, because Ollama's local REST API needs no auth, no
+/// scraping, and no CLI-log parsing. Read this one first when writing a new
+/// plugin — see ROADMAP.md for which other providers also have a real
+/// `fetch_status()` and what each one's data source looks like —
 /// see docs/plugin-development.md.
 pub struct OllamaPlugin {
     state: BasePluginState,
