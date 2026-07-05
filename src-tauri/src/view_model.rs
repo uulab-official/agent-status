@@ -113,6 +113,7 @@ fn sort_providers_by_attention(mut statuses: Vec<ProviderStatus>) -> Vec<Provide
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LimitRowViewModel {
+    pub id: String,
     pub label: String,
     pub has_limit: bool,
     pub percent: i64,
@@ -196,6 +197,7 @@ pub fn build_popover_view_model(statuses: Vec<ProviderStatus>, settings: Setting
                 .map(|window| {
                     let percent = percent_used(window);
                     LimitRowViewModel {
+                        id: window.id.clone(),
                         label: window.label.clone(),
                         has_limit: has_known_limit(window),
                         percent: percent.round() as i64,
@@ -264,6 +266,7 @@ mod tests {
         );
         assert_eq!(vm.providers.len(), 1);
         let row = &vm.providers[0];
+        assert_eq!(row.limits[0].id, "session");
         assert_eq!(row.limits[0].label, "5-hour");
         assert!(row.limits[0].has_limit);
         assert_eq!(row.limits[0].percent, 92);
