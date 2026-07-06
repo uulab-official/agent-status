@@ -117,6 +117,18 @@ pub fn recent_cost(conn: &Connection, provider_id: &str, limit: u32) -> rusqlite
     Ok(rows)
 }
 
+/// Deletes rows older than `cutoff` (an RFC 3339 timestamp, compared as
+/// text — `observed_at` is always written by `chrono::to_rfc3339()`, which
+/// is lexicographically sortable) from both history tables. Without this, a
+/// long-running app accumulates one row per window per refresh forever —
+/// harmless in isolation but unbounded, which matters for something meant
+/// to be left running for weeks or months. Returns the total rows removed.
+pub fn prune_older_than(conn: &Connection, cutoff: &str) -> rusqlite::Result<usize> {
+    let usage_deleted = conn.execute("DELETE FROM usage_history WHERE observed_at < ?1", params![cutoff])?;
+    let cost_deleted = conn.execute("DELETE FROM cost_history WHERE observed_at < ?1", params![cutoff])?;
+    Ok(usage_deleted + cost_deleted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,5 +245,36 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].amount, 12.42);
         assert_eq!(rows[0].period, "month");
+    }
+
+    #[test]
+    fn prune_older_than_removes_only_rows_before_the_cutoff() {
+        let conn = open_database(":memory:").unwrap();
+        for observed_at in ["2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", "2026-03-01T00:00:00Z"] {
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    provider_id: "claude",
+                    window_id: "session",
+                    period: "session",
+                    unit: "tokens",
+                    used: 1.0,
+                    limit_value: None,
+                    confidence: 3,
+                    observed_at,
+                },
+            )
+            .unwrap();
+            record_cost(
+                &conn,
+                &CostRecord { provider_id: "claude", currency: "usd", amount: 1.0, period: "month", confidence: 3, observed_at },
+            )
+            .unwrap();
+        }
+
+        let deleted = prune_older_than(&conn, "2026-02-01T00:00:00Z").unwrap();
+        assert_eq!(deleted, 2, "one usage_history + one cost_history row before the cutoff");
+        assert_eq!(recent_usage(&conn, "claude", 10).unwrap().len(), 2);
+        assert_eq!(recent_cost(&conn, "claude", 10).unwrap().len(), 2);
     }
 }
