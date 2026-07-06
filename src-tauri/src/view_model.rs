@@ -236,8 +236,13 @@ pub fn build_popover_view_model(statuses: Vec<ProviderStatus>, settings: Setting
                         value_text: format_value_text(window),
                         reset_text: window.resets_at.as_ref().and_then(|resets_at| {
                             chrono::DateTime::parse_from_rfc3339(resets_at).ok().map(|resets_at| {
-                                let remaining = (resets_at.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_milliseconds();
-                                format!("Resets in {}", format_duration_ms(remaining))
+                                let resets_at = resets_at.with_timezone(&chrono::Utc);
+                                let remaining = (resets_at - chrono::Utc::now()).num_milliseconds();
+                                // The relative form ("Resets in 76h") answers "how long do I
+                                // have left," but a user checking back later has no way to
+                                // tell if it's still accurate without redoing the math — the
+                                // absolute date answers "on what day does this actually happen."
+                                format!("Resets in {} ({})", format_duration_ms(remaining), resets_at.format("%Y.%m.%d"))
                             })
                         }),
                         confidence_stars: window.confidence as u8,
@@ -304,7 +309,10 @@ mod tests {
         assert_eq!(row.limits[0].percent, 92);
         assert_eq!(row.limits[0].tone, "critical");
         assert_eq!(row.limits[0].value_text, "92 / 100 messages");
-        assert!(row.limits[0].reset_text.as_ref().unwrap().starts_with("Resets in 1h"));
+        let reset_text = row.limits[0].reset_text.as_ref().unwrap();
+        assert!(reset_text.starts_with("Resets in 1h"));
+        let expected_date = (chrono::Utc::now() + chrono::Duration::minutes(90)).format("%Y.%m.%d").to_string();
+        assert!(reset_text.contains(&expected_date), "expected {reset_text} to contain {expected_date}");
     }
 
     #[test]
