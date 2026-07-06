@@ -26,6 +26,7 @@ provider-gemini.workspace = true
 provider-cursor.workspace = true
 provider-copilot.workspace = true
 provider-codex.workspace = true
+provider-antigravity.workspace = true
 
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-notification = "2"

@@ -56,6 +56,7 @@ dependencies = [
  "agent-plugins",
  "agent-tray",
  "chrono",
+ "provider-antigravity",
  "provider-claude",
  "provider-codex",
  "provider-copilot",
@@ -2900,6 +2901,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "provider-antigravity"
+version = "0.1.0"
+dependencies = [
+ "agent-core",
+ "agent-plugins",
+ "async-trait",
+ "chrono",
+ "dirs 5.0.1",
+ "tokio",
 ]
 
 [[package]]

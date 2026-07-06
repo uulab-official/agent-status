@@ -14,6 +14,23 @@ function toneColor(tone) {
   }
 }
 
+// `index.html`'s CSP is `style-src 'self'` (no `unsafe-inline`), which
+// silently blocks every HTML `style="..."` attribute from ever taking
+// effect — the width/color always fell back to CSS defaults, so every
+// "progress bar" in this popover looked like a flat, uncolored track no
+// matter what percent/tone was passed in. This went unnoticed because the
+// only providers exercised live here (Claude, Codex, Cursor) never had a
+// real known-limit bar to compare against. CSP's style-src does NOT block
+// script-set styles via the CSSOM (`element.style.foo = ...`), so bar
+// fills are rendered as plain `data-percent`/`data-tone` attributes and
+// given real width/color here instead of in the HTML template string.
+function applyBarFillStyles(root) {
+  root.querySelectorAll(".bar-fill[data-percent]").forEach((el) => {
+    el.style.width = `${el.dataset.percent}%`;
+    el.style.background = toneColor(el.dataset.tone);
+  });
+}
+
 // Abbreviates large counts the same way the Rust side does for value_text
 // (e.g. Claude's token totals), so the peak caption reads "41.2M" not
 // "41213024".
@@ -39,12 +56,27 @@ function renderRelativeUsageBar(valuesNewestFirst) {
   const current = valuesNewestFirst[0];
   const peak = Math.max(...valuesNewestFirst);
   const percent = peak > 0 ? Math.min(100, Math.round((current / peak) * 100)) : 0;
-  const color = percent >= 90 ? "#ef4444" : percent >= 70 ? "#f59e0b" : "#22c55e";
+  const tone = percent >= 90 ? "critical" : percent >= 70 ? "warning" : "ok";
   return `
     <div class="bar-track">
-      <div class="bar-fill" style="width:${percent}%;background:${color}"></div>
+      <div class="bar-fill" data-percent="${percent}" data-tone="${tone}"></div>
     </div>
     <div class="limit-meta">${percent}% of recent peak (${formatCount(peak)})</div>`;
+}
+
+// For providers that report zero LimitWindows but are genuinely connected
+// (Codex/Cursor/Antigravity: a real CLI login check succeeded, there's just
+// no usage/quota API to call) — a plain text block with no visual fill read
+// as "broken" next to providers that do have a bar. This isn't a usage
+// percentage (there's no number to base one on) — it's just "reachable,"
+// shown the same way a known-limit row is so the popover doesn't have two
+// visually different classes of "this is fine" rows.
+function renderConnectionBar(state) {
+  if (state !== "online") return "";
+  return `
+    <div class="bar-track">
+      <div class="bar-fill" data-percent="100" data-tone="ok"></div>
+    </div>`;
 }
 
 function renderProvider(provider) {
@@ -59,7 +91,7 @@ function renderProvider(provider) {
           ${
             limit.hasLimit
               ? `<div class="bar-track">
-                  <div class="bar-fill" style="width:${limit.percent}%;background:${toneColor(limit.tone)}"></div>
+                  <div class="bar-fill" data-percent="${limit.percent}" data-tone="${limit.tone}"></div>
                 </div>`
               : `<div class="relative-usage-bar" data-provider="${provider.id}" data-window="${limit.id}"></div>`
           }
@@ -75,7 +107,7 @@ function renderProvider(provider) {
         <span class="name">${provider.displayName}</span>
         <span class="state">${provider.state}</span>
       </header>
-      ${limits || `<div class="empty">${provider.detail ?? "No limit data reported"}</div>`}
+      ${limits || `${renderConnectionBar(provider.state)}<div class="empty">${provider.detail ?? "No limit data reported"}</div>`}
       ${limits && provider.detail ? `<div class="limit-meta">${provider.detail}</div>` : ""}
       ${provider.costText ? `<div class="cost">${provider.costText}</div>` : ""}
     </section>`;
@@ -91,6 +123,7 @@ function renderProviders(viewModel) {
   }
 
   root.innerHTML = viewModel.providers.map(renderProvider).join("");
+  applyBarFillStyles(root);
 }
 
 function renderSettings(settings) {
@@ -130,7 +163,10 @@ function loadRelativeUsageBars(viewModel) {
         }
         for (const [windowId, usedNewestFirst] of byWindow) {
           const el = document.querySelector(`.relative-usage-bar[data-provider="${provider.id}"][data-window="${windowId}"]`);
-          if (el) el.innerHTML = renderRelativeUsageBar(usedNewestFirst);
+          if (el) {
+            el.innerHTML = renderRelativeUsageBar(usedNewestFirst);
+            applyBarFillStyles(el);
+          }
         }
       })
       .catch(() => {});

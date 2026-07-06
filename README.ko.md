@@ -75,6 +75,7 @@ OpenRouter                이번 달 $12.42
 | [OpenAI / ChatGPT](crates/providers/openai) | ✅ 완전 구현 (플랫폼 API 비용) | ★★★★★ Admin Costs API — ChatGPT 플랜 메시지 한도(★★☆☆☆ 브라우저)는 아직 TODO |
 | [Gemini](crates/providers/gemini) | ✅ 실제 연결 상태 확인 | ★★★★★ API 키 유효성 + 모델 목록 — 조회 가능한 사용량 엔드포인트 자체가 없음 |
 | [GitHub Copilot](crates/providers/copilot) | 🚧 API 접근 막힘 — README 참고 | ★★★★★ API (v1.5) |
+| [Antigravity](crates/providers/antigravity) | 🚧 감지만 구현 | — (CLI/API 자체가 없음) |
 
 신뢰도(Confidence)는 부가 정보가 아니라 데이터 모델의 핵심 필드입니다.
 이유는 [docs/confidence.md](docs/confidence.md), 🚧 상태인 Provider를 완성하는

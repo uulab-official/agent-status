@@ -15,6 +15,7 @@ pub async fn create_default_registry() -> PluginRegistry {
         Box::new(provider_cursor::CursorPlugin::new()),
         Box::new(provider_copilot::CopilotPlugin::new()),
         Box::new(provider_codex::CodexPlugin::new()),
+        Box::new(provider_antigravity::AntigravityPlugin::new()),
         Box::new(provider_ollama::OllamaPlugin::new()),
         Box::new(provider_openrouter::OpenRouterPlugin::new()),
     ];

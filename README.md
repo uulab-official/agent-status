@@ -81,6 +81,7 @@ one shared shape. Losing a provider — or a vendor changing their usage page
 | [OpenAI / ChatGPT](crates/providers/openai) | ✅ Fully implemented (platform API cost) | ★★★★★ Admin Costs API — ChatGPT plan message caps (★★☆☆☆ browser) still TODO |
 | [Gemini](crates/providers/gemini) | ✅ Real connectivity check | ★★★★★ API key validity + model list — no usage/quota endpoint exists to call |
 | [GitHub Copilot](crates/providers/copilot) | 🚧 Blocked — see its README | ★★★★★ API (v1.5) |
+| [Antigravity](crates/providers/antigravity) | 🚧 Detection only | — (no CLI/API surface exists yet) |
 
 Confidence tiers are a first-class part of the data model, not a footnote —
 see [docs/confidence.md](docs/confidence.md) for why and
