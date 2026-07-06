@@ -3,6 +3,13 @@ const { listen } = window.__TAURI__.event;
 
 const TRAY_MODES = ["minimal", "compact", "detailed"];
 
+// Provider detail strings are internal (Rust-authored, not user input), but
+// escaping before dropping one into a `title="..."` attribute costs nothing
+// and avoids a broken tooltip if one ever contains a quote.
+function escapeAttr(value) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
 function toneColor(tone) {
   switch (tone) {
     case "critical":
@@ -100,15 +107,18 @@ function renderProvider(provider) {
     )
     .join("");
 
+  // The technical explanation (why there's no percent, why a CLI-only
+  // provider has no numbers) stays available on hover via `title` for
+  // anyone curious, but isn't shown inline — a wall of text under every
+  // bar buried the one thing this popover exists to show at a glance.
   return `
-    <section class="provider">
+    <section class="provider" title="${escapeAttr(provider.detail ?? "")}">
       <header>
         <span class="indicator">${provider.indicator}</span>
         <span class="name">${provider.displayName}</span>
         <span class="state">${provider.state}</span>
       </header>
-      ${limits || `${renderConnectionBar(provider.state)}<div class="empty">${provider.detail ?? "No limit data reported"}</div>`}
-      ${limits && provider.detail ? `<div class="limit-meta">${provider.detail}</div>` : ""}
+      ${limits || renderConnectionBar(provider.state) || `<div class="empty">No limit data reported</div>`}
       ${provider.costText ? `<div class="cost">${provider.costText}</div>` : ""}
     </section>`;
 }
