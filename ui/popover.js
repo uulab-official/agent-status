@@ -16,6 +16,17 @@ function toneColor(tone) {
       return "#ef4444";
     case "warning":
       return "#f59e0b";
+    case "estimate":
+      // Deliberately not on the red/amber/green alarm scale used for real
+      // quotas below — those colors mean "approaching a known limit," and
+      // this bar isn't one. A provider whose real official percentage
+      // *is* known (Codex's rate_limits, or any future hasLimit window)
+      // can look wildly different from this estimate at the same moment
+      // (verified live: Claude showed "100% of recent peak" here while
+      // the real Claude app showed 24% used) — same red bar for both
+      // would make them look like the same kind of number when they
+      // aren't.
+      return "#60a5fa";
     default:
       return "#22c55e";
   }
@@ -49,26 +60,31 @@ function formatCount(value) {
   return `${Math.round(value)}`;
 }
 
-// For windows with no known cap (e.g. Claude's token counts), there's no
-// real percentage to show — but a bare line chart read as "just a graph,"
-// not the progress-bar-at-a-glance the rest of the popover uses. Instead,
-// show a real progress bar against the highest reading seen recently: how
-// close is *right now* to the peak. Still never a percentage of anything
-// invented — it's an honest ratio of two numbers that were both actually
-// observed. Values come from `get_usage_history`, fetched separately after
-// the main render (see loadRelativeUsageBars) since history isn't part of
-// the view model itself.
+// For windows with no known cap (e.g. Claude's token counts — Anthropic
+// exposes no local source for the real percentage the Claude app itself
+// shows, which needs a Keychain-stored OAuth token this project won't
+// touch; see ROADMAP.md), there's no real percentage to show — but a bare
+// line chart read as "just a graph," not the progress-bar-at-a-glance the
+// rest of the popover uses. Instead, show a progress bar against the
+// highest reading seen recently: how close is *right now* to the peak.
+// Deliberately styled as a distinct "estimate" tone (see toneColor) rather
+// than the real-quota red/amber/green scale, and captioned to say plainly
+// that it isn't one — verified live that without this distinction, a
+// provider with a real known percentage (Codex) and this estimate
+// (Claude) rendered as visually identical red bars despite meaning
+// completely different things. Values come from `get_usage_history`,
+// fetched separately after the main render (see loadRelativeUsageBars)
+// since history isn't part of the view model itself.
 function renderRelativeUsageBar(valuesNewestFirst) {
   if (valuesNewestFirst.length === 0) return "";
   const current = valuesNewestFirst[0];
   const peak = Math.max(...valuesNewestFirst);
   const percent = peak > 0 ? Math.min(100, Math.round((current / peak) * 100)) : 0;
-  const tone = percent >= 90 ? "critical" : percent >= 70 ? "warning" : "ok";
   return `
     <div class="bar-track">
-      <div class="bar-fill" data-percent="${percent}" data-tone="${tone}"></div>
+      <div class="bar-fill" data-percent="${percent}" data-tone="estimate"></div>
     </div>
-    <div class="limit-meta">${percent}% of recent peak (${formatCount(peak)})</div>`;
+    <div class="limit-meta">≈${percent}% of recent peak (${formatCount(peak)}) — not an official quota</div>`;
 }
 
 // For providers that report zero LimitWindows but are genuinely connected

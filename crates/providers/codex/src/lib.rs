@@ -1,7 +1,7 @@
 use agent_core::{Confidence, ConnectionState, LimitWindow, ProviderPlugin, ProviderStatus};
 use agent_plugins::{command_exists_on_path, BasePluginState};
 use async_trait::async_trait;
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -95,13 +95,15 @@ fn find_jsonl_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn parse_rate_limits(line: &str) -> Option<RateLimits> {
+fn parse_rate_limits(line: &str) -> Option<(DateTime<Utc>, RateLimits)> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let payload = value.get("payload")?;
     if payload.get("type")?.as_str()? != "token_count" {
         return None;
     }
-    serde_json::from_value(payload.get("rate_limits")?.clone()).ok()
+    let timestamp = DateTime::parse_from_rfc3339(value.get("timestamp")?.as_str()?).ok()?.with_timezone(&Utc);
+    let rate_limits = serde_json::from_value(payload.get("rate_limits")?.clone()).ok()?;
+    Some((timestamp, rate_limits))
 }
 
 /// Scans the most recently modified session files (newest first) for the
@@ -111,7 +113,7 @@ fn parse_rate_limits(line: &str) -> Option<RateLimits> {
 /// Stops at the first file that has any reading at all: file mtime already
 /// orders "most recently written to," so that file's own last reading is
 /// the freshest available without needing to compare timestamps across files.
-fn latest_rate_limits(sessions_dir: &Path) -> Option<RateLimits> {
+fn latest_rate_limits(sessions_dir: &Path) -> Option<(DateTime<Utc>, RateLimits)> {
     let mut files = Vec::new();
     find_jsonl_files(sessions_dir, &mut files);
     files.sort_by_key(|f| std::cmp::Reverse(std::fs::metadata(f).and_then(|m| m.modified()).ok()));
@@ -123,6 +125,20 @@ fn latest_rate_limits(sessions_dir: &Path) -> Option<RateLimits> {
         }
     }
     None
+}
+
+/// A reading is only trustworthy for a given window while that window
+/// hasn't had a chance to fully roll over since it was taken — Codex only
+/// updates `rate_limits` when the CLI actually runs, so a percentage from
+/// hours ago for the 5-hour window could be showing a completely different
+/// cycle than the one currently active. Verified this matters live: a
+/// reading ~22 hours old (over 4x the 5-hour window's own length) was still
+/// being shown as if current, which is not a reasonable estimate — for the
+/// 7-day secondary window the same 22-hour-old reading is still a
+/// reasonable approximation, which is why staleness is checked per-window
+/// rather than once for the whole reading.
+fn is_fresh(reading_at: DateTime<Utc>, now: DateTime<Utc>, window_minutes: i64) -> bool {
+    now.signed_duration_since(reading_at).num_minutes() < window_minutes
 }
 
 async fn is_logged_in() -> bool {
@@ -156,14 +172,24 @@ impl ProviderPlugin for CodexPlugin {
     }
 
     async fn refresh(&mut self) {
-        let rate_limits = self.sessions_dir.as_deref().and_then(latest_rate_limits);
+        let now = Utc::now();
+        let reading = self.sessions_dir.as_deref().and_then(latest_rate_limits);
         let mut limits = Vec::new();
-        if let Some(rate_limits) = &rate_limits {
+        let mut stale_count = 0;
+        if let Some((reading_at, rate_limits)) = &reading {
             if let Some(primary) = &rate_limits.primary {
-                limits.push(to_limit_window("codex:primary", primary));
+                if is_fresh(*reading_at, now, primary.window_minutes) {
+                    limits.push(to_limit_window("codex:primary", primary));
+                } else {
+                    stale_count += 1;
+                }
             }
             if let Some(secondary) = &rate_limits.secondary {
-                limits.push(to_limit_window("codex:secondary", secondary));
+                if is_fresh(*reading_at, now, secondary.window_minutes) {
+                    limits.push(to_limit_window("codex:secondary", secondary));
+                } else {
+                    stale_count += 1;
+                }
             }
         }
 
@@ -171,8 +197,14 @@ impl ProviderPlugin for CodexPlugin {
 
         let mut status = ProviderStatus::unknown(self.id(), self.display_name());
         status.state = if logged_in { ConnectionState::Online } else { ConnectionState::Unknown };
-        status.detail = Some(if !limits.is_empty() {
+        status.detail = Some(if !limits.is_empty() && stale_count > 0 {
+            format!(
+                "Rate limits from Codex CLI's local session log (as of the last time it was used); {stale_count} window(s) omitted as too stale to trust — see README.md"
+            )
+        } else if !limits.is_empty() {
             "Rate limits from Codex CLI's local session log (as of the last time it was used) — see README.md".into()
+        } else if stale_count > 0 {
+            format!("Rate-limit reading found but too stale to trust ({stale_count} window(s) older than their own window length) — see README.md")
         } else if logged_in {
             "Logged in via Codex CLI — no rate-limit reading found in local session logs yet".into()
         } else {
@@ -233,13 +265,16 @@ mod tests {
         let dir = fixture_dir("happy-path");
         let session_dir = dir.join("2026/07/02");
         fs::create_dir_all(&session_dir).unwrap();
+        let now = Utc::now();
+        let ten_minutes_ago = (now - chrono::Duration::minutes(10)).to_rfc3339();
+        let one_minute_ago = (now - chrono::Duration::minutes(1)).to_rfc3339();
         fs::write(
             session_dir.join("rollout-1.jsonl"),
             [
                 "not json".to_string(),
-                token_count_line("2026-07-02T15:19:41Z", 5.0, 56.0),
-                serde_json::json!({"timestamp": "2026-07-02T15:20:00Z", "type": "event_msg", "payload": {"type": "other_event"}}).to_string(),
-                token_count_line("2026-07-05T02:24:45Z", 5.0, 98.0),
+                token_count_line(&ten_minutes_ago, 5.0, 56.0),
+                serde_json::json!({"timestamp": one_minute_ago, "type": "event_msg", "payload": {"type": "other_event"}}).to_string(),
+                token_count_line(&one_minute_ago, 5.0, 98.0),
             ]
             .join("\n"),
         )
@@ -260,6 +295,28 @@ mod tests {
         assert_eq!(secondary.percent_used, Some(98.0));
         assert!(secondary.resets_at.is_some());
         assert_eq!(primary.confidence, Confidence::CliLog);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn refresh_omits_a_window_whose_reading_is_older_than_the_window_itself() {
+        // A reading taken 6 hours ago can't be trusted for the 5-hour
+        // (300-minute) primary window -- it's definitely rolled over at
+        // least once since -- but is still a reasonable estimate for the
+        // 7-day secondary window.
+        let dir = fixture_dir("stale-primary");
+        fs::create_dir_all(&dir).unwrap();
+        let six_hours_ago = (Utc::now() - chrono::Duration::hours(6)).to_rfc3339();
+        fs::write(dir.join("rollout.jsonl"), token_count_line(&six_hours_ago, 7.0, 40.0)).unwrap();
+
+        let mut plugin = CodexPlugin::with_sessions_dir(&dir);
+        plugin.refresh().await;
+        let status = plugin.get_status();
+
+        assert_eq!(status.limits.len(), 1, "only the still-fresh secondary window should survive");
+        assert_eq!(status.limits[0].id, "codex:secondary");
+        assert!(status.detail.unwrap().contains("stale"));
 
         fs::remove_dir_all(&dir).ok();
     }

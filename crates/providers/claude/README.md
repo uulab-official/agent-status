@@ -27,6 +27,21 @@ API, prefer it and use it to populate `limit`/`percent_used` directly.
 
 Note: `~/.claude/stats-cache.json` has historical daily message/session
 counts but no current-window percentage either, so it isn't used here.
+Re-checked directly (grepping real `~/.claude/projects/**/*.jsonl` files
+for `rate_limit`/`utilization`/`five_hour`/`seven_day`) after finding that
+Codex CLI *does* log a real server-computed percentage locally (see
+`crates/providers/codex`) — Claude Code's session transcripts genuinely
+don't contain an equivalent field. The percentage the official Claude app
+shows (Settings → Usage) comes from a live call to an undocumented
+`api.anthropic.com/api/oauth/usage` endpoint authenticated with the OAuth
+token Claude Code stores in the macOS Keychain — the same credential-store
+line this project won't cross (see ROADMAP.md's Claude entry). So this
+plugin's "peak-relative" percentage (computed client-side in
+`ui/popover.js`, not here) is a genuinely different kind of number from
+Codex's real one, not just a lower-confidence version of it — verified
+live that they can show wildly different values at the same moment (100%
+of recent peak vs. the real app's 24%). The popover renders it in a
+visually distinct color for exactly this reason.
 
 ## Limit windows reported
 
