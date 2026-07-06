@@ -142,6 +142,21 @@ async fn init(app: AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
+        // Must be the first plugin registered (Tauri's own requirement).
+        // Without this, launching the binary twice — easy to do by accident
+        // during development (a previous `cargo run` left running, or a
+        // stray background process from an earlier restart) — produces two
+        // live tray icons and two schedulers writing to the same SQLite
+        // file concurrently. The second launch's callback runs in the
+        // *first* (already-running) instance; showing its popover here
+        // gives that accidental second launch a visible result instead of
+        // silently doing nothing.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window(POPOVER_LABEL) {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .invoke_handler(tauri::generate_handler![
