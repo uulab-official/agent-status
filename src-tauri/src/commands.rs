@@ -100,9 +100,9 @@ pub fn send_test_notification(app: AppHandle) -> Result<(), String> {
 }
 
 /// Reads back what `history::persist()` has written for one provider, newest
-/// first. No caller in the UI yet — this is the read side of the roadmap's
-/// "usage history persistence" item, ready for the Timeline view (v1.5) to
-/// call once it exists.
+/// first. Called by `ui/popover.js`'s `loadRelativeUsageBars()` for the
+/// no-known-limit rows' "% of recent peak" bar; also ready for a future
+/// Timeline view (v1.5) to call for a longer history chart.
 #[tauri::command]
 pub async fn get_usage_history(provider_id: String, state: State<'_, SharedState>) -> Result<UsageHistoryResponse, String> {
     let guard = state.lock().await;
