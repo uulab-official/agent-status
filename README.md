@@ -75,13 +75,13 @@ one shared shape. Losing a provider — or a vendor changing their usage page
 | [Ollama](crates/providers/ollama) | ✅ Fully implemented | ★★★★★ official local API |
 | [Custom / OpenAI-compatible](crates/providers/custom) (LM Studio, AnythingLLM, Open WebUI) | ✅ Fully implemented | ★★★★★ |
 | [OpenRouter](crates/providers/openrouter) | ✅ Fully implemented | ★★★★★ API |
-| [Codex](crates/providers/codex) | ✅ Real connectivity check | ★★★☆☆ CLI (`codex login status`) — no usage API exists yet |
+| [Codex](crates/providers/codex) | ✅ Fully implemented | ★★★☆☆ CLI log (`~/.codex/sessions` rate limits) — real 5-hour/weekly percentages, falls back to `codex login status` |
 | [Cursor](crates/providers/cursor) | ✅ Real connectivity check | ★★★☆☆ CLI (`cursor-agent status`); ★★★★☆ dashboard quota deliberately not pursued (needs a session cookie — see its README) |
 | [Claude](crates/providers/claude) | ✅ Fully implemented | ★★★☆☆ CLI log (`~/.claude` session transcripts) — token counts, no plan-cap percentage |
 | [OpenAI / ChatGPT](crates/providers/openai) | ✅ Fully implemented (platform API cost) | ★★★★★ Admin Costs API — ChatGPT plan message caps (★★☆☆☆ browser) still TODO |
 | [Gemini](crates/providers/gemini) | ✅ Real connectivity check | ★★★★★ API key validity + model list — no usage/quota endpoint exists to call |
 | [GitHub Copilot](crates/providers/copilot) | 🚧 Blocked — see its README | ★★★★★ API (v1.5) |
-| [Antigravity](crates/providers/antigravity) | 🚧 Detection only | — (no CLI/API surface exists yet) |
+| [Antigravity](crates/providers/antigravity) | ✅ Fully implemented | ★★★☆☆ CLI log (local quota cache) — closest-to-limit recommended model, staleness-gated |
 
 Confidence tiers are a first-class part of the data model, not a footnote —
 see [docs/confidence.md](docs/confidence.md) for why and

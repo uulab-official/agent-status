@@ -196,6 +196,17 @@ impl ProviderPlugin for CodexPlugin {
         let logged_in = if limits.is_empty() { is_logged_in().await } else { true };
 
         let mut status = ProviderStatus::unknown(self.id(), self.display_name());
+        // `observed_at` means "when this reading was produced," not "when
+        // we happened to poll" — for a rate limit surviving the freshness
+        // check, that's the session log's own timestamp, which the popover
+        // surfaces as "updated Xh ago" so a real-but-hours-old percentage
+        // (Codex only updates rate_limits when the CLI actually runs)
+        // doesn't read as if it were just fetched live.
+        if let Some((reading_at, _)) = &reading {
+            if !limits.is_empty() {
+                status.observed_at = reading_at.to_rfc3339();
+            }
+        }
         status.state = if logged_in { ConnectionState::Online } else { ConnectionState::Unknown };
         status.detail = Some(if !limits.is_empty() && stale_count > 0 {
             format!(
@@ -295,6 +306,10 @@ mod tests {
         assert_eq!(secondary.percent_used, Some(98.0));
         assert!(secondary.resets_at.is_some());
         assert_eq!(primary.confidence, Confidence::CliLog);
+        // observed_at should be the reading's own timestamp (one_minute_ago),
+        // not "whenever refresh() happened to run" — otherwise a hours-old
+        // percentage would misleadingly claim to be from just now.
+        assert_eq!(status.observed_at, one_minute_ago);
 
         fs::remove_dir_all(&dir).ok();
     }

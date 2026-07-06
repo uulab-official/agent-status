@@ -18,6 +18,35 @@ fn format_duration_ms(ms: i64) -> String {
     }
 }
 
+/// Surfaces how stale a reading is directly in the popover — added after a
+/// real point of confusion: a CLI-log provider's percentage (e.g. Codex's
+/// real rate-limit reading) only updates when that CLI actually runs, so a
+/// number that's hours old can look "wrong" next to the official app's
+/// live value without anything telling the user it's not a live read.
+/// `ProviderStatus::observed_at` means "when this reading was produced,"
+/// not "when we happened to poll" — providers that can determine the
+/// former (Codex) set it to that; providers that can't just use the poll
+/// time, which reads as "just now" here, an accurate reflection of what's
+/// actually known.
+fn format_updated_text(observed_at: &str) -> Option<String> {
+    let observed_at = chrono::DateTime::parse_from_rfc3339(observed_at).ok()?.with_timezone(&chrono::Utc);
+    let age_ms = (chrono::Utc::now() - observed_at).num_milliseconds();
+    if age_ms < 60_000 {
+        return Some("Updated just now".to_string());
+    }
+    let total_minutes = age_ms / 60_000;
+    let hours = total_minutes / 60;
+    let minutes = total_minutes % 60;
+    let ago = if hours >= 24 {
+        format!("{}d ago", hours / 24)
+    } else if hours > 0 {
+        format!("{hours}h {minutes}m ago")
+    } else {
+        format!("{minutes}m ago")
+    };
+    Some(format!("Updated {ago}"))
+}
+
 fn percent_used(window: &agent_core::LimitWindow) -> f64 {
     if let Some(p) = window.percent_used {
         return p;
@@ -136,6 +165,8 @@ pub struct ProviderRowViewModel {
     pub cost_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -222,6 +253,7 @@ pub fn build_popover_view_model(statuses: Vec<ProviderStatus>, settings: Setting
                 limits,
                 cost_text: status.cost.as_ref().and_then(format_cost_text),
                 detail: status.detail.clone(),
+                updated_text: format_updated_text(&status.observed_at),
             }
         })
         .collect();
@@ -353,6 +385,24 @@ mod tests {
             settings(),
         );
         assert_eq!(vm.providers[0].cost_text.as_deref(), Some("This month $12.42"));
+    }
+
+    #[test]
+    fn surfaces_reading_age_so_a_stale_real_number_does_not_read_as_live() {
+        let reading_at = chrono::Utc::now() - chrono::Duration::hours(23) - chrono::Duration::minutes(5);
+        let vm = build_popover_view_model(
+            vec![status(|s| {
+                s.observed_at = reading_at.to_rfc3339();
+            })],
+            settings(),
+        );
+        assert_eq!(vm.providers[0].updated_text.as_deref(), Some("Updated 23h 5m ago"));
+    }
+
+    #[test]
+    fn a_reading_from_moments_ago_reads_as_just_now() {
+        let vm = build_popover_view_model(vec![status(|_| {})], settings());
+        assert_eq!(vm.providers[0].updated_text.as_deref(), Some("Updated just now"));
     }
 
     #[test]

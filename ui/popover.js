@@ -136,6 +136,16 @@ function renderProvider(provider) {
       </header>
       ${limits || renderConnectionBar(provider.state) || `<div class="empty">No limit data reported</div>`}
       ${provider.costText ? `<div class="cost">${provider.costText}</div>` : ""}
+      ${
+        // "Updated just now" is true of nearly every provider on every poll
+        // and would just be noise; the case worth surfacing is a real
+        // reading that's meaningfully old (Codex's rate-limit only updates
+        // when the CLI runs, so a stale percentage can otherwise look like
+        // a live one next to the official app).
+        provider.updatedText && provider.updatedText !== "Updated just now"
+          ? `<div class="updated">${provider.updatedText}</div>`
+          : ""
+      }
     </section>`;
 }
 
