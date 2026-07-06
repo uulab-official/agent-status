@@ -2936,6 +2936,9 @@ dependencies = [
  "agent-plugins",
  "async-trait",
  "chrono",
+ "dirs 5.0.1",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

@@ -1,6 +1,6 @@
 # provider-codex
 
-Reports connection status for the **OpenAI Codex CLI** (`codex`).
+Reports real rate-limit usage for the **OpenAI Codex CLI** (`codex`).
 
 ## Detection
 
@@ -10,25 +10,29 @@ Reports connection status for the **OpenAI Codex CLI** (`codex`).
 
 | Confidence | Source | Notes |
 |---|---|---|
-| ★★★☆☆ CLI log | `codex login status` (stdout contains "Logged in") | The CLI's own sanctioned way of answering "am I logged in" — this plugin never reads `~/.codex/auth.json` or any other credential file directly. Same pattern as `provider-copilot`'s `gh auth token`. |
+| ★★★☆☆ CLI log | `~/.codex/sessions/**/*.jsonl` | Codex CLI logs a `token_count` event with a `rate_limits` object (real, server-computed `used_percent`/`window_minutes`/`resets_at` for a "primary" ~5-hour and "secondary" ~7-day window) every time it checks in with OpenAI. This plugin reads the *last* such event in the most recently modified session file — the same class of source as `provider-claude`'s `~/.claude/projects/**/*.jsonl` parsing. Never reads `~/.codex/auth.json` or any other credential file (see [SECURITY.md](../../../SECURITY.md)). |
+| ★★★☆☆ CLI log | `codex login status` (stdout/stderr contains "Logged in") | Fallback connectivity-only check, used only when no session log has a rate-limit reading yet (e.g. right after install, before Codex has been used once). Never reads a credential file either. |
 
-**Investigated and found no usage/limit surface**: `codex --help`,
-`codex login --help`, and `codex debug --help` were checked directly against
-a real installed CLI — there is no `usage`, `status`, or `limits`
-subcommand exposing rate-limit or quota data. `codex login status` only
-reports whether a session is active.
+Unlike Claude's token-count summation (no official cap exists, so it
+reports raw counts with `limit: None`), Codex's `rate_limits.used_percent`
+*is* the real percentage OpenAI itself computed — so this plugin sets
+`percent_used` directly rather than estimating anything, and includes a
+real `resets_at` from the log's own `resets_at` unix timestamp.
 
 ## What it reports
 
-- `state`: `Online` when `codex login status` reports a logged-in session,
-  `Unknown` otherwise
-- No `limits` — there is nothing to report yet; see above
-- `detail` explains why, either way
+- Two `LimitWindow`s when a session log has a reading: window label derived
+  from `window_minutes` (300 → "5-hour", 10080 → "Weekly"), `percent_used`
+  set directly from `rate_limits.primary`/`.secondary`, real `resets_at`
+- `state`: `Online` whenever a rate-limit reading exists, or when
+  `codex login status` reports a logged-in session with no reading yet;
+  `Unknown` only when neither signal is available
+- `detail` explains which of the two sources produced the current reading
 
 ## Status
 
-Fully implemented for what's achievable today (real connectivity check, no
-credential file parsing). If OpenAI ships a usage API reachable via a
-sanctioned token-export mechanism (comparable to `gh auth token`), extend
-`fetch_status()` to call it — don't parse `~/.codex/auth.json` directly to
-get there; see SECURITY.md.
+Fully implemented. If OpenAI changes the session log's `rate_limits` shape,
+`window_label()`'s minutes-based derivation should keep working without
+changes; if the *field names* change, `parse_rate_limits()` needs updating
+(it fails closed — a shape it doesn't recognize falls back to the
+connectivity-only check rather than panicking or reporting stale data).
