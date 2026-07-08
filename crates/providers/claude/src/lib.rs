@@ -80,7 +80,13 @@ fn read_usage_entries(projects_dir: &Path) -> Vec<UsageEntry> {
 /// not for mirroring the live rolling cap).
 fn tokens_in_window(entries: &[UsageEntry], now: DateTime<Utc>, window: Duration) -> f64 {
     let cutoff = now - window;
-    entries.iter().filter(|entry| entry.timestamp > cutoff).map(|entry| entry.tokens).sum()
+    // `Iterator::sum::<f64>()` on an empty iterator yields *negative* zero
+    // (confirmed: `Vec::<f64>::new().iter().sum()` is `-0.0`, unlike a plain
+    // `fold(0.0, Add::add)`), which `format!("{value:.0}")` then renders as
+    // the literal string "-0" — a real bug hit live: an idle 5-hour window
+    // showed "-0 tokens" instead of "0 tokens". `fold` avoids the identity
+    // Rust's `Sum` impl uses for floats.
+    entries.iter().filter(|entry| entry.timestamp > cutoff).fold(0.0, |total, entry| total + entry.tokens)
 }
 
 /// Claude (claude.ai + Claude Code CLI). See README.md for the confidence
@@ -219,6 +225,21 @@ mod tests {
             }
         })
         .to_string()
+    }
+
+    #[test]
+    fn tokens_in_window_is_positive_zero_when_nothing_falls_inside_it() {
+        // Rust's `Iterator::sum::<f64>()` on an empty iterator is negative
+        // zero, which `format!("{value:.0}")` renders as the string "-0" —
+        // a real bug hit live (an idle 5-hour window showed "-0 tokens").
+        // `is_sign_positive()` is the actual assertion that would have
+        // caught it; `assert_eq!(0.0, -0.0)` passes in Rust (IEEE equality
+        // treats them as equal) and would not have.
+        let now = Utc::now();
+        let old_entry = UsageEntry { timestamp: now - Duration::hours(10), tokens: 500.0 };
+        let total = tokens_in_window(&[old_entry], now, Duration::hours(SESSION_WINDOW_HOURS));
+        assert_eq!(total, 0.0);
+        assert!(total.is_sign_positive(), "expected +0.0, got -0.0");
     }
 
     #[tokio::test]

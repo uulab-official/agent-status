@@ -64,6 +64,14 @@ fn has_known_limit(window: &agent_core::LimitWindow) -> bool {
 /// Abbreviates large counts (Claude's token totals routinely run into the
 /// millions) so the popover doesn't wrap a 10-digit number onto two lines.
 fn format_count(value: f64) -> String {
+    // `-0.0` is a real value a plugin can end up computing (an idle window
+    // summing to Rust's float `Sum` identity, which is negative zero, not
+    // positive — see provider-claude's `tokens_in_window`) and
+    // `format!("{value:.0}")` renders it as the literal string "-0", which
+    // reads as a broken/negative count rather than "nothing happened here."
+    // Normalized once at this shared formatting boundary so every provider
+    // is protected, not just the one where this was first found.
+    let value = if value == 0.0 { 0.0 } else { value };
     let abs = value.abs();
     if abs >= 1_000_000_000.0 {
         format!("{:.1}B", value / 1_000_000_000.0)
@@ -313,6 +321,31 @@ mod tests {
         assert!(reset_text.starts_with("Resets in 1h"));
         let expected_date = (chrono::Utc::now() + chrono::Duration::minutes(90)).format("%Y.%m.%d").to_string();
         assert!(reset_text.contains(&expected_date), "expected {reset_text} to contain {expected_date}");
+    }
+
+    #[test]
+    fn a_negative_zero_used_count_renders_as_a_plain_zero_not_negative_zero() {
+        // A plugin summing an empty/idle window can end up with `-0.0`
+        // (Rust's float `Sum` identity — see provider-claude's
+        // `tokens_in_window`), which naive `{value:.0}` formatting renders
+        // as the literal string "-0" — confirmed live in the popover.
+        let vm = build_popover_view_model(
+            vec![status(|s| {
+                s.limits = vec![LimitWindow {
+                    id: "claude:session".into(),
+                    label: "5-hour".into(),
+                    period: "session".into(),
+                    unit: "tokens".into(),
+                    limit: None,
+                    used: -0.0,
+                    percent_used: None,
+                    resets_at: None,
+                    confidence: Confidence::CliLog,
+                }];
+            })],
+            settings(),
+        );
+        assert_eq!(vm.providers[0].limits[0].value_text, "0 tokens");
     }
 
     #[test]

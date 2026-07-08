@@ -53,6 +53,11 @@ function applyBarFillStyles(root) {
 // (e.g. Claude's token totals), so the peak caption reads "41.2M" not
 // "41213024".
 function formatCount(value) {
+  // `Math.round(-0.4)` is `-0`, and template-literal-interpolating that
+  // prints the literal string "-0" — a real bug hit live (Claude's "recent
+  // peak" caption showing "-0" for an idle window). Normalized the same way
+  // as the Rust-side `format_count` in `view_model.rs`.
+  if (value === 0) value = 0;
   const abs = Math.abs(value);
   if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
