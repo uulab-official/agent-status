@@ -43,9 +43,26 @@ impl CodexPlugin {
 
 #[derive(serde::Deserialize, Clone)]
 struct RateLimits {
+    limit_id: Option<String>,
     primary: Option<RateLimitWindow>,
     secondary: Option<RateLimitWindow>,
 }
+
+/// A real account can log `token_count` events under more than one
+/// `limit_id` — confirmed live: alongside the account-wide `"codex"` bucket,
+/// this machine's logs also have `"codex_bengalfox"` (a specific experimental
+/// model, tagged with its own `limit_name`) and `"premium"` (no window data
+/// at all). These are separate quotas, not alternate readings of the same
+/// one — picking "whichever token_count line is newest" without checking
+/// this ends up reporting an unrelated bucket's percentage. Hit exactly this
+/// live: the newest file on disk had a fresh `codex_bengalfox` reading at
+/// 0%/0% (that model simply hadn't been used recently) at the same moment
+/// the real `"codex"` bucket — the one ChatGPT's own UI was showing "usage
+/// exhausted" for — was sitting at 100%. `"codex"` is the account-wide
+/// bucket every session reports (226k of ~345k observed readings on this
+/// machine, vs. ~119k for the next most common id), so it's the one that
+/// answers "am I rate-limited," not a specific model's separate allowance.
+const ACCOUNT_WIDE_LIMIT_ID: &str = "codex";
 
 #[derive(serde::Deserialize, Clone)]
 struct RateLimitWindow {
@@ -102,7 +119,13 @@ fn parse_rate_limits(line: &str) -> Option<(DateTime<Utc>, RateLimits)> {
         return None;
     }
     let timestamp = DateTime::parse_from_rfc3339(value.get("timestamp")?.as_str()?).ok()?.with_timezone(&Utc);
-    let rate_limits = serde_json::from_value(payload.get("rate_limits")?.clone()).ok()?;
+    let rate_limits: RateLimits = serde_json::from_value(payload.get("rate_limits")?.clone()).ok()?;
+    // See `ACCOUNT_WIDE_LIMIT_ID` — a token_count line for a different
+    // limit_id (a specific model's own separate quota) isn't a reading of
+    // the account-wide rate limit at all, so it isn't a candidate here.
+    if rate_limits.limit_id.as_deref() != Some(ACCOUNT_WIDE_LIMIT_ID) {
+        return None;
+    }
     Some((timestamp, rate_limits))
 }
 
@@ -255,13 +278,17 @@ mod tests {
     }
 
     fn token_count_line(timestamp: &str, primary_percent: f64, secondary_percent: f64) -> String {
+        token_count_line_for(timestamp, "codex", primary_percent, secondary_percent)
+    }
+
+    fn token_count_line_for(timestamp: &str, limit_id: &str, primary_percent: f64, secondary_percent: f64) -> String {
         serde_json::json!({
             "timestamp": timestamp,
             "type": "event_msg",
             "payload": {
                 "type": "token_count",
                 "rate_limits": {
-                    "limit_id": "codex",
+                    "limit_id": limit_id,
                     "primary": {"used_percent": primary_percent, "window_minutes": 300, "resets_at": 1783230674},
                     "secondary": {"used_percent": secondary_percent, "window_minutes": 10080, "resets_at": 1783578987},
                     "plan_type": "pro"
@@ -310,6 +337,40 @@ mod tests {
         // not "whenever refresh() happened to run" — otherwise a hours-old
         // percentage would misleadingly claim to be from just now.
         assert_eq!(status.observed_at, one_minute_ago);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn refresh_skips_a_more_recently_modified_file_reporting_a_different_limit_id() {
+        // Real bug, hit live: a session file can be the most recently
+        // modified on disk while its last token_count reading is for a
+        // *different* limit_id (e.g. a specific model's own separate quota)
+        // than the account-wide "codex" bucket — reported live as
+        // codex_bengalfox at 0%/0% while the real "codex" bucket (which
+        // ChatGPT's own UI was showing as exhausted) sat at 100%/28% in an
+        // older, less-recently-touched file. Picking "whichever file was
+        // modified last" without checking limit_id silently showed the
+        // wrong quota's numbers.
+        let dir = fixture_dir("mixed-limit-ids");
+        fs::create_dir_all(&dir).unwrap();
+        let real_reading_time = (Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+        fs::write(dir.join("older-but-real.jsonl"), token_count_line_for(&real_reading_time, "codex", 100.0, 28.0)).unwrap();
+
+        // Force a distinct, later mtime on the second file regardless of
+        // filesystem timestamp resolution.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let other_model_reading_time = (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339();
+        fs::write(dir.join("newer-other-model.jsonl"), token_count_line_for(&other_model_reading_time, "codex_bengalfox", 0.0, 0.0)).unwrap();
+
+        let mut plugin = CodexPlugin::with_sessions_dir(&dir);
+        plugin.refresh().await;
+        let status = plugin.get_status();
+
+        let primary = status.limits.iter().find(|w| w.id == "codex:primary").unwrap();
+        let secondary = status.limits.iter().find(|w| w.id == "codex:secondary").unwrap();
+        assert_eq!(primary.percent_used, Some(100.0), "must report the account-wide codex bucket, not codex_bengalfox's 0%");
+        assert_eq!(secondary.percent_used, Some(28.0));
 
         fs::remove_dir_all(&dir).ok();
     }
