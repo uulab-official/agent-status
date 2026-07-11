@@ -112,20 +112,14 @@ fn find_jsonl_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn parse_rate_limits(line: &str) -> Option<(DateTime<Utc>, RateLimits)> {
+fn parse_any_rate_limits(line: &str) -> Option<(DateTime<Utc>, RateLimits)> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let payload = value.get("payload")?;
     if payload.get("type")?.as_str()? != "token_count" {
         return None;
     }
     let timestamp = DateTime::parse_from_rfc3339(value.get("timestamp")?.as_str()?).ok()?.with_timezone(&Utc);
-    let rate_limits: RateLimits = serde_json::from_value(payload.get("rate_limits")?.clone()).ok()?;
-    // See `ACCOUNT_WIDE_LIMIT_ID` — a token_count line for a different
-    // limit_id (a specific model's own separate quota) isn't a reading of
-    // the account-wide rate limit at all, so it isn't a candidate here.
-    if rate_limits.limit_id.as_deref() != Some(ACCOUNT_WIDE_LIMIT_ID) {
-        return None;
-    }
+    let rate_limits = serde_json::from_value(payload.get("rate_limits")?.clone()).ok()?;
     Some((timestamp, rate_limits))
 }
 
@@ -133,21 +127,33 @@ fn parse_rate_limits(line: &str) -> Option<(DateTime<Utc>, RateLimits)> {
 /// last `token_count` line in each — `resets_at`/`used_percent` are only
 /// meaningful as of the most recent check-in, and files can run to tens of
 /// thousands of lines, so this reads from the end rather than the start.
-/// Stops at the first file that has any reading at all: file mtime already
-/// orders "most recently written to," so that file's own last reading is
-/// the freshest available without needing to compare timestamps across files.
-fn latest_rate_limits(sessions_dir: &Path) -> Option<(DateTime<Utc>, RateLimits)> {
+/// Returns the account-wide (`ACCOUNT_WIDE_LIMIT_ID`) reading the moment
+/// it's found in any of the recently touched files — file mtime already
+/// orders "most recently written to," and a file whose own last reading is
+/// for a *different* limit_id (see the doc comment above) doesn't stop the
+/// search; the scan just continues into the next file. If no account-wide
+/// reading turns up at all, the limit_id of whatever *was* found is
+/// returned too, so `refresh()` can say plainly "found data, but not for
+/// the bucket this plugin tracks" instead of "no data at all" — those are
+/// different situations and worth telling apart if a future plan structure
+/// ever renames the account-wide bucket away from `"codex"`.
+fn latest_rate_limits(sessions_dir: &Path) -> (Option<(DateTime<Utc>, RateLimits)>, Option<String>) {
     let mut files = Vec::new();
     find_jsonl_files(sessions_dir, &mut files);
     files.sort_by_key(|f| std::cmp::Reverse(std::fs::metadata(f).and_then(|m| m.modified()).ok()));
 
+    let mut other_limit_id = None;
     for file in files.iter().take(8) {
         let Ok(contents) = std::fs::read_to_string(file) else { continue };
-        if let Some(reading) = contents.lines().rev().find_map(parse_rate_limits) {
-            return Some(reading);
+        let Some((timestamp, rate_limits)) = contents.lines().rev().find_map(parse_any_rate_limits) else { continue };
+        if rate_limits.limit_id.as_deref() == Some(ACCOUNT_WIDE_LIMIT_ID) {
+            return (Some((timestamp, rate_limits)), None);
+        }
+        if other_limit_id.is_none() {
+            other_limit_id = rate_limits.limit_id.clone();
         }
     }
-    None
+    (None, other_limit_id)
 }
 
 /// A reading is only trustworthy for a given window while that window
@@ -196,7 +202,7 @@ impl ProviderPlugin for CodexPlugin {
 
     async fn refresh(&mut self) {
         let now = Utc::now();
-        let reading = self.sessions_dir.as_deref().and_then(latest_rate_limits);
+        let (reading, other_limit_id) = self.sessions_dir.as_deref().map(latest_rate_limits).unwrap_or((None, None));
         let mut limits = Vec::new();
         let mut stale_count = 0;
         if let Some((reading_at, rate_limits)) = &reading {
@@ -239,6 +245,8 @@ impl ProviderPlugin for CodexPlugin {
             "Rate limits from Codex CLI's local session log (as of the last time it was used) — see README.md".into()
         } else if stale_count > 0 {
             format!("Rate-limit reading found but too stale to trust ({stale_count} window(s) older than their own window length) — see README.md")
+        } else if let Some(other_id) = &other_limit_id {
+            format!("Logged in via Codex CLI — found rate-limit data for a different quota bucket ('{other_id}'), not the account-wide '{ACCOUNT_WIDE_LIMIT_ID}' bucket this plugin tracks — see README.md")
         } else if logged_in {
             "Logged in via Codex CLI — no rate-limit reading found in local session logs yet".into()
         } else {
@@ -371,6 +379,28 @@ mod tests {
         let secondary = status.limits.iter().find(|w| w.id == "codex:secondary").unwrap();
         assert_eq!(primary.percent_used, Some(100.0), "must report the account-wide codex bucket, not codex_bengalfox's 0%");
         assert_eq!(secondary.percent_used, Some(28.0));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn refresh_names_the_other_bucket_when_no_account_wide_reading_exists_at_all() {
+        // If every token_count reading found belongs to some other bucket
+        // (no "codex" reading anywhere in the recently touched files), that
+        // is a different, more informative situation than "no data at all"
+        // — say which bucket was found instead of a generic "no reading yet".
+        let dir = fixture_dir("only-other-bucket");
+        fs::create_dir_all(&dir).unwrap();
+        let reading_time = (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339();
+        fs::write(dir.join("rollout.jsonl"), token_count_line_for(&reading_time, "codex_bengalfox", 0.0, 0.0)).unwrap();
+
+        let mut plugin = CodexPlugin::with_sessions_dir(&dir);
+        plugin.refresh().await;
+        let status = plugin.get_status();
+
+        assert!(status.limits.is_empty());
+        let detail = status.detail.unwrap();
+        assert!(detail.contains("codex_bengalfox"), "expected {detail} to name the other bucket");
 
         fs::remove_dir_all(&dir).ok();
     }
