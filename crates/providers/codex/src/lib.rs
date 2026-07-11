@@ -123,37 +123,44 @@ fn parse_any_rate_limits(line: &str) -> Option<(DateTime<Utc>, RateLimits)> {
     Some((timestamp, rate_limits))
 }
 
-/// Scans the most recently modified session files (newest first) for the
-/// last `token_count` line in each — `resets_at`/`used_percent` are only
-/// meaningful as of the most recent check-in, and files can run to tens of
-/// thousands of lines, so this reads from the end rather than the start.
-/// Returns the account-wide (`ACCOUNT_WIDE_LIMIT_ID`) reading the moment
-/// it's found in any of the recently touched files — file mtime already
-/// orders "most recently written to," and a file whose own last reading is
-/// for a *different* limit_id (see the doc comment above) doesn't stop the
-/// search; the scan just continues into the next file. If no account-wide
-/// reading turns up at all, the limit_id of whatever *was* found is
-/// returned too, so `refresh()` can say plainly "found data, but not for
-/// the bucket this plugin tracks" instead of "no data at all" — those are
-/// different situations and worth telling apart if a future plan structure
-/// ever renames the account-wide bucket away from `"codex"`.
+/// Scans the most recently modified session files for the last
+/// `token_count` line in each — files can run to tens of thousands of
+/// lines, so this reads from the end rather than the start. Considers the
+/// top few candidates by *file* mtime (a cheap way to avoid scanning every
+/// session ever recorded), but picks the one whose *reading* has the latest
+/// timestamp among them, rather than trusting file mtime order directly.
+///
+/// Those aren't the same thing: with several Codex sessions active around
+/// the same moment, two rollout files can have mtimes only ~20 seconds
+/// apart while their last `"codex"`-bucket reading is over a day apart —
+/// confirmed live (`rollout-...4e53.jsonl`, mtime marginally newer, last
+/// `codex` reading from the day before; `rollout-...5329.jsonl`, mtime
+/// marginally older, last `codex` reading from the same second as the
+/// check). A file's mtime bumps on *any* append (including a different
+/// limit_id's token_count line, or an unrelated event), not only when the
+/// account-wide bucket gets a fresh check-in, so "first file by mtime with
+/// any codex reading" can return a reading that's actually stale while a
+/// truly current one sits one file down the list.
 fn latest_rate_limits(sessions_dir: &Path) -> (Option<(DateTime<Utc>, RateLimits)>, Option<String>) {
     let mut files = Vec::new();
     find_jsonl_files(sessions_dir, &mut files);
     files.sort_by_key(|f| std::cmp::Reverse(std::fs::metadata(f).and_then(|m| m.modified()).ok()));
 
+    let mut best: Option<(DateTime<Utc>, RateLimits)> = None;
     let mut other_limit_id = None;
     for file in files.iter().take(8) {
         let Ok(contents) = std::fs::read_to_string(file) else { continue };
         let Some((timestamp, rate_limits)) = contents.lines().rev().find_map(parse_any_rate_limits) else { continue };
         if rate_limits.limit_id.as_deref() == Some(ACCOUNT_WIDE_LIMIT_ID) {
-            return (Some((timestamp, rate_limits)), None);
-        }
-        if other_limit_id.is_none() {
+            if best.as_ref().is_none_or(|(best_ts, _)| timestamp > *best_ts) {
+                best = Some((timestamp, rate_limits));
+            }
+        } else if other_limit_id.is_none() {
             other_limit_id = rate_limits.limit_id.clone();
         }
     }
-    (None, other_limit_id)
+    let other_limit_id = if best.is_some() { None } else { other_limit_id };
+    (best, other_limit_id)
 }
 
 /// A reading is only trustworthy for a given window while that window
@@ -401,6 +408,45 @@ mod tests {
         assert!(status.limits.is_empty());
         let detail = status.detail.unwrap();
         assert!(detail.contains("codex_bengalfox"), "expected {detail} to name the other bucket");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn refresh_prefers_the_reading_with_the_latest_timestamp_over_the_freshest_file_mtime() {
+        // Real bug, hit live: with several sessions active around the same
+        // moment, the file with the marginally newer *mtime* had its last
+        // "codex" reading from over a day earlier (some other event bumped
+        // that file's mtime after its last real check-in), while a file
+        // with a slightly older mtime held the actually-current reading.
+        // Picking "first file by mtime with any codex reading" returned the
+        // stale one. The fix must compare reading timestamps, not file
+        // mtimes, to decide which reading wins.
+        let dir = fixture_dir("stale-mtime-winner");
+        fs::create_dir_all(&dir).unwrap();
+
+        let stale_reading_time = (Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+        fs::write(dir.join("touched-recently-but-stale-reading.jsonl"), token_count_line(&stale_reading_time, 57.0, 21.0)).unwrap();
+
+        // Force a distinct, later mtime on the file with the stale reading,
+        // mirroring the live case (an unrelated append bumped its mtime
+        // after its last real rate-limit check-in).
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let fresh_reading_time = Utc::now().to_rfc3339();
+        fs::write(dir.join("touched-earlier-but-fresh-reading.jsonl"), token_count_line(&fresh_reading_time, 4.0, 1.0)).unwrap();
+        // Roll this file's mtime back so it looks *older* than the other
+        // file despite holding the fresher reading -- reproducing exactly
+        // what was observed live.
+        let two_seconds_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(2);
+        let file = fs::File::open(dir.join("touched-earlier-but-fresh-reading.jsonl")).unwrap();
+        file.set_modified(two_seconds_ago).unwrap();
+
+        let mut plugin = CodexPlugin::with_sessions_dir(&dir);
+        plugin.refresh().await;
+        let status = plugin.get_status();
+
+        let primary = status.limits.iter().find(|w| w.id == "codex:primary").unwrap();
+        assert_eq!(primary.percent_used, Some(4.0), "must use the reading with the latest timestamp, not the freshest file mtime");
 
         fs::remove_dir_all(&dir).ok();
     }
