@@ -3,13 +3,19 @@
 **AI Agent Usage & Status Monitor** — every AI agent's limits, resets, and
 cost, in one menu bar.
 
+[![CI](https://github.com/uulab-official/agent-status/actions/workflows/ci.yml/badge.svg)](https://github.com/uulab-official/agent-status/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [한국어 README](README.ko.md) · [Roadmap](ROADMAP.md) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md)
 
-> Status: **early scaffold, not yet a finished product.** The standard
-> model, plugin architecture, tray icon, popover, and settings all work end
-> to end today; most providers have detection wired up but not live data
-> yet. See [ROADMAP.md](ROADMAP.md) for exactly what's done vs. planned —
-> don't take anything below as fully shipped.
+> Status: **pre-1.0, actively developed.** Ollama, Custom endpoints,
+> OpenRouter, Codex, Claude, and Antigravity all report real, verified-live
+> usage data today (not just detection) — see the table below for exactly
+> which. Cursor/Gemini/Copilot are connectivity-only for now (real quota
+> data is blocked on either a missing vendor API or a credential-store read
+> this project won't do — see each provider's README). See
+> [ROADMAP.md](ROADMAP.md) for the exact done/planned line and a running
+> log of real bugs found and fixed.
 
 ## The problem
 
@@ -34,14 +40,16 @@ stays running and shows every provider's usage in one glance:
 🤖 C82 G41 O99      ← detailed: per-provider initial + top usage
 ```
 
-Click it, get the breakdown:
+Click it, get the breakdown — a real screenshot, not a mock:
 
-```
-Claude   ███████░░░ 71%   resets in 2h 14m
-GPT      █████░░░░░ 53%   resets in 43m
-Gemini   ████████░░ 82%   weekly 41%
-OpenRouter                $12.42 this month
-```
+<img src="docs/popover-screenshot.png" alt="Popover showing Codex's real rate-limit percentage and Claude's peak-relative estimate" width="280">
+
+Note the two different kinds of number in the same popover: Codex's
+percentage is a real, server-reported quota (with a real reset date);
+Claude's is explicitly labeled as an estimate, because Anthropic doesn't
+expose a real plan-cap percentage anywhere locally observable — see
+[docs/confidence.md](docs/confidence.md) for why this distinction is a
+first-class part of the data model, not an afterthought.
 
 This click-to-open popover, the tray label itself, and the settings row
 (menu bar mode, Launch at Login) all work today — see

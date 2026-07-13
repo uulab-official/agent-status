@@ -2,12 +2,18 @@
 
 **AI Agent Usage & Status Monitor** — 모든 AI 에이전트의 한도, 리셋 시간, 비용을 메뉴바 하나에서.
 
+[![CI](https://github.com/uulab-official/agent-status/actions/workflows/ci.yml/badge.svg)](https://github.com/uulab-official/agent-status/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [English README](README.md) · [로드맵](ROADMAP.md) · [아키텍처](docs/architecture.md) · [기여 가이드](CONTRIBUTING.md)
 
-> 현재 상태: **초기 스캐폴드 단계로, 아직 완성된 제품은 아닙니다.** 표준 모델,
-> 플러그인 아키텍처, 트레이 아이콘, 팝오버, 설정 기능까지는 실제로 동작합니다.
-> 대부분의 Provider는 자동 감지(`detect()`)까지만 되어 있고 실제 데이터 조회는
-> 아직입니다. 정확한 진행 상황은 [ROADMAP.md](ROADMAP.md)를 기준으로 판단해 주세요.
+> 현재 상태: **1.0 이전, 활발히 개발 중입니다.** Ollama, Custom 엔드포인트,
+> OpenRouter, Codex, Claude, Antigravity는 이미 실제로 검증된 라이브 사용량
+> 데이터를 보여줍니다(단순 감지가 아닙니다) — 정확히 어디까지인지는 아래 표를
+> 참고하세요. Cursor/Gemini/Copilot은 아직 연결 확인만 가능합니다(실제 사용량
+> 조회는 벤더 API 부재 또는 이 프로젝트가 하지 않기로 한 credential 파일 읽기가
+> 필요해서 막혀 있음 — 각 provider의 README 참고). 정확한 진행 상황과 실제로
+> 발견·수정한 버그 기록은 [ROADMAP.md](ROADMAP.md)를 참고하세요.
 
 ## 문제의식
 
@@ -31,14 +37,16 @@ Windows 트레이 유틸리티입니다. 항상 실행 중이며 모든 Provider
 🤖 C82 G41 O99      ← 상세: Provider별 이니셜 + 최고 사용률
 ```
 
-클릭하면 세부 내역:
+클릭하면 세부 내역 — 목업이 아니라 실제 스크린샷입니다:
 
-```
-Claude   ███████░░░ 71%   2시간 14분 후 리셋
-GPT      █████░░░░░ 53%   43분 후 리셋
-Gemini   ████████░░ 82%   주간 41%
-OpenRouter                이번 달 $12.42
-```
+<img src="docs/popover-screenshot.png" alt="Codex의 실제 rate-limit 퍼센트와 Claude의 피크 대비 추정치를 보여주는 팝오버" width="280">
+
+같은 팝오버 안에 두 가지 다른 종류의 수치가 있다는 점을 주목하세요: Codex의
+퍼센트는 서버가 실제로 보고한 진짜 한도(실제 리셋 날짜 포함)이고, Claude는
+명시적으로 "추정치"라고 표시되어 있습니다 — Anthropic이 로컬에서 확인 가능한
+어디에도 실제 플랜 한도 퍼센트를 노출하지 않기 때문입니다. 이 구분이 왜
+데이터 모델의 핵심 요소인지는 [docs/confidence.md](docs/confidence.md)를
+참고하세요.
 
 이 클릭-오픈 팝오버, 트레이 라벨 자체, 설정 항목(메뉴바 모드, 로그인 시 시작)까지
 전부 지금 실제로 동작합니다 — 무엇을 실행하고 검증했는지는
