@@ -19,10 +19,11 @@ fn claude_projects_dir() -> Option<PathBuf> {
 /// (`~/.claude/projects/**/*.jsonl`). Mirrors the subset of fields `ccusage`
 /// relies on — everything else in the transcript is conversation content
 /// this plugin has no reason to read.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct UsageEntry {
     timestamp: DateTime<Utc>,
     tokens: f64,
+    model: String,
 }
 
 /// A long agentic session re-sends its cached system prompt/context on
@@ -43,8 +44,73 @@ fn parse_entry(line: &str) -> Option<UsageEntry> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let timestamp_str = value.get("timestamp")?.as_str()?;
     let timestamp = DateTime::parse_from_rfc3339(timestamp_str).ok()?.with_timezone(&Utc);
-    let usage = value.get("message")?.get("usage")?;
-    Some(UsageEntry { timestamp, tokens: tokens_from_usage(usage) })
+    let message = value.get("message")?;
+    let usage = message.get("usage")?;
+    let model = message.get("model").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    Some(UsageEntry { timestamp, tokens: tokens_from_usage(usage), model })
+}
+
+/// Turns a raw model id (`"claude-sonnet-4-6"`, `"claude-haiku-4-5-20251001"`,
+/// `"<synthetic>"`) into what the popover's per-model breakdown should show
+/// (`"Sonnet 4.6"`, `"Haiku 4.5"`, `"Other"`). Synthetic entries are internal
+/// bookkeeping (e.g. summarization), not a model a user chose, so they're
+/// grouped under "Other" rather than shown as a confusing literal id.
+fn format_model_name(model: &str) -> String {
+    let Some(rest) = model.strip_prefix("claude-") else { return "Other".to_string() };
+    let mut parts = rest.split('-');
+    let Some(name) = parts.next() else { return "Other".to_string() };
+    let mut label = name.chars().next().map_or(String::new(), |c| c.to_uppercase().to_string()) + &name[name.chars().next().map_or(0, char::len_utf8)..];
+    let version: Vec<&str> = parts.take_while(|p| p.chars().all(|c| c.is_ascii_digit()) && p.len() < 8).collect();
+    if !version.is_empty() {
+        label.push(' ');
+        label.push_str(&version.join("."));
+    }
+    label
+}
+
+/// Groups effective tokens within `window` by model, as a percentage of
+/// that window's own total — a proportion of *known, already-computed*
+/// usage, not a percentage of any quota, so it doesn't run into the
+/// "inventing a cap" problem this plugin otherwise avoids. Models under 1%
+/// are folded into "Other" so a long tail of one-off entries doesn't turn
+/// the popover's hover text into a wall of near-zero percentages.
+fn model_breakdown(entries: &[UsageEntry], now: DateTime<Utc>, window: Duration) -> Vec<(String, f64)> {
+    let cutoff = now - window;
+    let mut totals: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut grand_total = 0.0;
+    for entry in entries.iter().filter(|entry| entry.timestamp > cutoff) {
+        *totals.entry(format_model_name(&entry.model)).or_insert(0.0) += entry.tokens;
+        grand_total += entry.tokens;
+    }
+    if grand_total <= 0.0 {
+        return Vec::new();
+    }
+    let mut other = 0.0;
+    let mut breakdown: Vec<(String, f64)> = Vec::new();
+    for (model, tokens) in totals {
+        let percent = tokens / grand_total * 100.0;
+        if percent < 1.0 {
+            other += percent;
+        } else {
+            breakdown.push((model, percent));
+        }
+    }
+    breakdown.sort_by(|a, b| b.1.total_cmp(&a.1));
+    if other > 0.0 {
+        breakdown.push(("Other".to_string(), other));
+    }
+    breakdown
+}
+
+fn format_model_breakdown(entries: &[UsageEntry], now: DateTime<Utc>, window: Duration, window_label: &str) -> Option<String> {
+    let breakdown = model_breakdown(entries, now, window);
+    // A single model (the common case) isn't a "breakdown" worth stating —
+    // it's just "all of it," which the caption's own total already implies.
+    if breakdown.len() < 2 {
+        return None;
+    }
+    let parts: Vec<String> = breakdown.iter().map(|(model, percent)| format!("{model} {percent:.0}%")).collect();
+    Some(format!("By model ({window_label}): {}", parts.join(", ")))
 }
 
 /// `~/.claude/projects/<project>/<session>.jsonl`, arbitrarily nested under
@@ -145,6 +211,19 @@ impl ClaudePlugin {
             },
         ];
 
+        let mut detail = format!(
+            "~{:.0} effective tokens in the last {SESSION_WINDOW_HOURS}h, ~{:.0} in the last {WEEKLY_WINDOW_DAYS}d (cache reads discounted) — no official cap available, see README.md",
+            session_tokens, weekly_tokens
+        );
+        // The weekly window is the one likely to have actually seen more
+        // than one model in play; the 5-hour window is usually a single
+        // work session with a single model, where a "breakdown" of one
+        // entry would just restate the total.
+        if let Some(breakdown) = format_model_breakdown(&entries, now, Duration::days(WEEKLY_WINDOW_DAYS), "7d") {
+            detail.push_str(" | ");
+            detail.push_str(&breakdown);
+        }
+
         Ok(ProviderStatus {
             provider_id: self.id().into(),
             display_name: self.display_name().into(),
@@ -153,10 +232,7 @@ impl ClaudePlugin {
             models: vec![],
             cost: None,
             observed_at: now.to_rfc3339(),
-            detail: Some(format!(
-                "~{:.0} effective tokens in the last {SESSION_WINDOW_HOURS}h, ~{:.0} in the last {WEEKLY_WINDOW_DAYS}d (cache reads discounted) — no official cap available, see README.md",
-                session_tokens, weekly_tokens
-            )),
+            detail: Some(detail),
         })
     }
 }
@@ -215,9 +291,14 @@ mod tests {
     }
 
     fn usage_line(timestamp: &str, input_tokens: u64, output_tokens: u64) -> String {
+        usage_line_for_model(timestamp, "claude-sonnet-5", input_tokens, output_tokens)
+    }
+
+    fn usage_line_for_model(timestamp: &str, model: &str, input_tokens: u64, output_tokens: u64) -> String {
         serde_json::json!({
             "timestamp": timestamp,
             "message": {
+                "model": model,
                 "usage": {
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
@@ -236,10 +317,48 @@ mod tests {
         // caught it; `assert_eq!(0.0, -0.0)` passes in Rust (IEEE equality
         // treats them as equal) and would not have.
         let now = Utc::now();
-        let old_entry = UsageEntry { timestamp: now - Duration::hours(10), tokens: 500.0 };
+        let old_entry = UsageEntry { timestamp: now - Duration::hours(10), tokens: 500.0, model: "claude-sonnet-5".into() };
         let total = tokens_in_window(&[old_entry], now, Duration::hours(SESSION_WINDOW_HOURS));
         assert_eq!(total, 0.0);
         assert!(total.is_sign_positive(), "expected +0.0, got -0.0");
+    }
+
+    #[test]
+    fn format_model_name_turns_raw_ids_into_readable_labels() {
+        assert_eq!(format_model_name("claude-sonnet-4-6"), "Sonnet 4.6");
+        assert_eq!(format_model_name("claude-opus-4-8"), "Opus 4.8");
+        assert_eq!(format_model_name("claude-sonnet-5"), "Sonnet 5");
+        // A trailing date-like segment (not a version number) is dropped.
+        assert_eq!(format_model_name("claude-haiku-4-5-20251001"), "Haiku 4.5");
+        assert_eq!(format_model_name("<synthetic>"), "Other");
+        assert_eq!(format_model_name("unknown"), "Other");
+    }
+
+    #[test]
+    fn model_breakdown_is_none_when_only_one_model_was_used() {
+        let now = Utc::now();
+        let entries = vec![
+            UsageEntry { timestamp: now, tokens: 100.0, model: "claude-sonnet-5".into() },
+            UsageEntry { timestamp: now, tokens: 50.0, model: "claude-sonnet-5".into() },
+        ];
+        // A single model isn't a "breakdown" -- the caption's own total
+        // already implies "all of it was this model."
+        assert!(format_model_breakdown(&entries, now, Duration::days(7), "7d").is_none());
+    }
+
+    #[test]
+    fn model_breakdown_reports_percent_of_the_windows_own_total_and_folds_small_shares_into_other() {
+        let now = Utc::now();
+        let entries = vec![
+            UsageEntry { timestamp: now, tokens: 700.0, model: "claude-sonnet-5".into() },
+            UsageEntry { timestamp: now, tokens: 290.0, model: "claude-opus-4-8".into() },
+            // Under 1% of the 1000-token total -- folded into "Other" rather
+            // than cluttering the breakdown with a near-zero percentage.
+            UsageEntry { timestamp: now, tokens: 5.0, model: "claude-haiku-4-5-20251001".into() },
+            UsageEntry { timestamp: now, tokens: 5.0, model: "<synthetic>".into() },
+        ];
+        let text = format_model_breakdown(&entries, now, Duration::days(7), "7d").unwrap();
+        assert_eq!(text, "By model (7d): Sonnet 5 70%, Opus 4.8 29%, Other 1%");
     }
 
     #[tokio::test]
