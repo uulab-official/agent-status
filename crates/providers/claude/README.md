@@ -63,6 +63,20 @@ actually a much smaller amount of new work).
 Both windows report `used` with `limit: None`, since the real cap isn't
 locally observable.
 
+## Per-model breakdown
+
+`message.model` is already present on every usage entry (e.g.
+`claude-sonnet-4-6`, `claude-opus-4-8`) but wasn't used for anything until
+now. `status.detail` appends `"By model (7d): Sonnet 5 62%, Opus 4.8 20%,
+..."` for the weekly window when more than one model actually shows up in
+it — percentages are of that window's own already-computed total, not a
+quota, so this doesn't run into the "inventing a percentage" problem this
+plugin otherwise avoids. Shares under 1% fold into "Other" (including the
+internal `<synthetic>` model id some transcript entries carry, e.g. from
+summarization). Not shown for the 5-hour window — a single work session is
+usually one model, where a "100% Sonnet" breakdown would just restate the
+total.
+
 ## Status
 
 `detect()` and `fetch_status()` are both implemented
